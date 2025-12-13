@@ -13,8 +13,23 @@ pip install python-dotenv
 在專案根目錄創建 `.env` 檔案：
 
 ```
-BEDROCK_API_KEY=你的_API_Key
+# FinMind API Token（用於股票資料擷取）
+Finmind_token="你的_FinMind_Token"
+
+# AWS Bedrock API Key（用於 AI 分析功能）
+BEDROCK_API_KEY="你的_Bedrock_API_Key"
 ```
+
+### 取得 FinMind Token
+1. 前往 [FinMind 官網](https://finmindtrade.com/) 註冊帳號
+2. 登入後在個人頁面取得 API Token
+3. 將 Token 填入 `.env` 檔案的 `Finmind_token`
+
+### 取得 Bedrock API Key
+1. 登入 AWS Console
+2. 前往 Bedrock 服務
+3. 在 API Keys 頁面創建新的 API Key
+4. 將 API Key 填入 `.env` 檔案的 `BEDROCK_API_KEY`
 
 ## 3. 測試 AI 連線
 

@@ -86,7 +86,8 @@ const indicatorConfigs = {
     foreign_consecutive_sell: { name: '外資連續賣超', category: '籌碼類', params: { days: 3 } },
     trust_consecutive_sell: { name: '投信連續賣超', category: '籌碼類', params: { days: 3 } },
     foreign_holding_high: { name: '外資持股比高', category: '籌碼類', params: { threshold: 30 } },
-    foreign_holding_low: { name: '外資持股比低', category: '籌碼類', params: { threshold: 10 } }
+    foreign_holding_low: { name: '外資持股比低', category: '籌碼類', params: { threshold: 10 } },
+    trust_volume_ratio: { name: '投信買入占交易量比', category: '籌碼類', params: { days: 5, volume_ratio: 10 } }
 };
 
 // 載入族群資料

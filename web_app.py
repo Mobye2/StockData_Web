@@ -14,7 +14,7 @@ def index():
 
 @app.route('/backtest')
 def backtest_page():
-    return render_template('backtest2.html', active_page='backtest')
+    return render_template('single_backtest.html', active_page='backtest')
 
 @app.route('/multi-backtest')
 def multi_backtest_page():
@@ -136,7 +136,7 @@ def ai_analysis():
     from urllib.error import HTTPError, URLError
     from dotenv import load_dotenv
     
-    load_dotenv()
+    load_dotenv(override=True)
     
     data = request.json
     stock_code = data.get('stock_code')
@@ -147,39 +147,93 @@ def ai_analysis():
     backtest_result = data.get('backtest_result', {})
     stock_data = data.get('stock_data', [])
     
-    # 組織提示詞
-    prompt = f"""請分析以下台股回測結果：
+    # 獲取每次交易前20日的數據
+    trade_context_data = []
+    if backtest_result.get('trades'):
+        conn = get_db()
+        try:
+            # 獲取所有股票數據
+            cursor = conn.execute(f'SELECT * FROM stock_{stock_code} ORDER BY 日期')
+            all_data = [dict(row) for row in cursor.fetchall()]
+            
+            # 為每次交易提取前20日數據
+            for trade in backtest_result.get('trades', []):
+                trade_date = trade.get('日期')
+                if trade_date:
+                    # 找到交易日期的索引
+                    trade_idx = next((i for i, d in enumerate(all_data) if d['日期'] == trade_date), None)
+                    if trade_idx and trade_idx >= 20:
+                        # 提取前20日數據
+                        pre_trade_data = all_data[trade_idx-20:trade_idx]
+                        trade_context_data.append({
+                            '交易日期': trade_date,
+                            '交易類型': trade.get('類型', ''),
+                            '前20日數據': pre_trade_data
+                        })
+        except:
+            trade_context_data = []
+        finally:
+            conn.close()
+    
+    # 組織系統提示詞（專業角色設定）
+    system_prompt = """你是一位資深的量化交易分析師，具備以下專業能力：
 
-股票資訊：
-- 代碼：{stock_code}
-- 名稱：{stock_name}
-- 族群：{sector}
+1. **技術分析專家**：精通各種技術指標（MA、RSI、MACD等）及其組合應用
+2. **策略優化師**：擅長分析交易策略的優缺點，提供具體優化建議
+3. **風險管理專家**：深度理解風險控制和資金管理原則
+4. **行為金融學家**：能夠分析交易者的行為模式和心理偏誤
+5. **台灣股市專家**：熟悉台灣股市特性環境
 
-買進策略：
+**分析原則**：
+- 優先目標：最大化總獲利（絕對金額）
+- 次要目標：提升勝率和減少回撤
+- 深度分析使用者的操作習慣和偏好
+- 提供具體、可執行的優化建議
+
+**回答風格**：專業、精確、實用，使用數據支持的分析結論。"""
+    
+    # 組織用戶提示詞
+    user_prompt = f"""請對以下台股回測結果進行深度分析：
+
+## 股票資訊
+- **代碼**：{stock_code}
+- **名稱**：{stock_name}
+- **族群**：{sector}
+
+## 交易策略設定
+### 買進策略（任一達成即買進）：
 {json.dumps(buy_strategies, ensure_ascii=False, indent=2)}
 
-賣出策略：
+### 賣出策略（任一達成即賣出）：
 {json.dumps(sell_strategies, ensure_ascii=False, indent=2)}
 
-回測結果：
-- 報酬率：{backtest_result.get('return_rate', 0):.2f}%
-- 獲利：{backtest_result.get('profit', 0):,}
-- 交易次數：{backtest_result.get('total_trades', 0)}
-- 勝率：{backtest_result.get('win_rate', 0):.2f}%
-- 最大回撤：{backtest_result.get('max_drawdown', 0):.2f}%
+## 回測績效結果
+- **總報酬率**：{backtest_result.get('return_rate', 0):.2f}%
+- **總獲利**：{backtest_result.get('profit', 0):,} 元
+- **交易次數**：{backtest_result.get('total_trades', 0)} 次
+- **勝率**：{backtest_result.get('win_rate', 0):.2f}%
+- **最大回撤**：{backtest_result.get('max_drawdown', 0):.2f}%
+- **平均每筆獲利**：{backtest_result.get('profit', 0) / max(backtest_result.get('total_trades', 1), 1):,.0f} 元
 
-交易明細：
-{json.dumps(backtest_result.get('trades', [])[:10], ensure_ascii=False, indent=2)}
+## 詳細交易記錄
+{json.dumps(backtest_result.get('trades', []), ensure_ascii=False, indent=2)}
 
-股票數據樣本（最近10筆）：
-{json.dumps(stock_data[-10:] if len(stock_data) > 10 else stock_data, ensure_ascii=False, indent=2)}
+## 每次交易前20日市場環境分析
+{json.dumps(trade_context_data, ensure_ascii=False, indent=2)}
 
-請提供：
-1. 策略表現分析
-2. 優缺點評估
-3. 改進建議
-4. 風險提示
-"""
+## 分析要求
+請基於以上資料，提供以下分析：
+
+### 1. 獲利最大化優化建議，
+- **主要目標**：提升總獲利金額
+- 建議新增或移除的指標組合
+- 提供具體的參數調整建議
+- 在不衝突下提供勝率提升策略
+
+請以專業、數據化的方式進行分析，並提供具體可操作的建議。
+直接針對策略指標或參數給予建議即可，請給予一個方案，用條列口語的方式表達"""
+    
+
     
     try:
         api_key = os.getenv('BEDROCK_API_KEY')
@@ -189,17 +243,18 @@ def ai_analysis():
         
         payload = {
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 2000,
+            "max_tokens": 1000,
+            "system": system_prompt,
             "messages": [
                 {
                     "role": "user",
-                    "content": prompt
+                    "content": user_prompt
                 }
             ]
         }
         
         req = Request(
-            'https://bedrock-runtime.us-east-1.amazonaws.com/model/anthropic.claude-4-5-sonnet-20250929-v1:0/invoke',
+            'https://bedrock-runtime.us-east-1.amazonaws.com/model/global.anthropic.claude-sonnet-4-5-20250929-v1:0/invoke',
             data=json.dumps(payload).encode('utf-8'),
             headers={
                 'Content-Type': 'application/json',
@@ -210,7 +265,19 @@ def ai_analysis():
         with urlopen(req, timeout=60) as response:
             result = json.loads(response.read().decode('utf-8'))
             analysis = result['content'][0]['text']
-            return jsonify({'analysis': analysis})
+            
+            # 在 console 顯示 AI 回應
+            print("=" * 80)
+            print("AI RESPONSE:")
+            print("=" * 80)
+            print(analysis)
+            print("=" * 80)
+            
+            return jsonify({
+                'analysis': analysis,
+                'user_prompt': user_prompt,
+                'system_prompt': system_prompt
+            })
             
     except HTTPError as e:
         error_body = e.read().decode('utf-8')
@@ -228,10 +295,13 @@ def test_ai():
     from urllib.error import HTTPError, URLError
     from dotenv import load_dotenv
     
-    load_dotenv()
+    load_dotenv(override=True)
     
     try:
         api_key = os.getenv('BEDROCK_API_KEY')
+        
+        # 在測試AI功能中顯示TOKEN
+        print(f"DEBUG: BEDROCK_API_KEY = {api_key}")
         
         if not api_key:
             return jsonify({'error': 'API Key未設定，請在.env檔案中設定BEDROCK_API_KEY'}), 500
@@ -248,7 +318,7 @@ def test_ai():
         }
         
         req = Request(
-            'https://bedrock-runtime.us-east-1.amazonaws.com/model/anthropic.claude-3-sonnet-20240229-v1:0/invoke',
+            'https://bedrock-runtime.us-east-1.amazonaws.com/model/global.anthropic.claude-sonnet-4-5-20250929-v1:0/invoke',
             data=json.dumps(payload).encode('utf-8'),
             headers={
                 'Content-Type': 'application/json',

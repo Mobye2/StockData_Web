@@ -387,6 +387,31 @@ class BacktestStrategy:
                     threshold = params.get('threshold', 10)
                     sig = [(self.df.iloc[i].get('外資持股比', 0) or 0) <= threshold for i in range(len(self.df))]
                     indicator_signals.append(sig)
+                
+                elif ind_type == 'trust_volume_ratio':
+                    days = params.get('days', 5)
+                    volume_ratio = params.get('volume_ratio', 10)
+                    sig = []
+                    for i in range(len(self.df)):
+                        if i >= days - 1:
+                            # 計算前N日投信買入總張數
+                            trust_buy_sum = 0
+                            volume_sum = 0
+                            for j in range(i - days + 1, i + 1):
+                                trust_val = self.df.iloc[j].get('投信買賣超', 0) or 0
+                                if trust_val > 0:  # 只計算買入
+                                    trust_buy_sum += trust_val
+                                volume_sum += self.df.iloc[j].get('成交量', 0) or 0
+                            
+                            # 計算投信買入占交易量比例
+                            if volume_sum > 0:
+                                ratio = (trust_buy_sum / volume_sum) * 100
+                                sig.append(ratio >= volume_ratio)
+                            else:
+                                sig.append(False)
+                        else:
+                            sig.append(False)
+                    indicator_signals.append(sig)
             
             # 策略內所有指標都要達標（AND）
             if indicator_signals:

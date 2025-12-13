@@ -5,11 +5,34 @@
 - Web 介面顯示 K 棒圖
 - 互動式圖表（可縮放、拖曳）
 - 顯示成交量
+- 回測系統（單檔/多檔）
+- AI 分析功能（AWS Bedrock）
 
 ## 安裝套件
 ```bash
-pip install flask pandas
+pip install flask pandas python-dotenv
 ```
+
+## 環境設定
+
+在專案根目錄創建 `.env` 檔案：
+
+```
+# FinMind API Token（用於股票資料擷取）
+Finmind_token="你的_FinMind_Token"
+
+# AWS Bedrock API Key（用於 AI 分析功能）
+BEDROCK_API_KEY="你的_Bedrock_API_Key"
+```
+
+### 取得 FinMind Token
+1. 前往 [FinMind 官網](https://finmindtrade.com/) 註冊帳號
+2. 登入後在個人頁面取得 API Token
+
+### 取得 Bedrock API Key
+1. 登入 AWS Console
+2. 前往 Bedrock 服務
+3. 在 API Keys 頁面創建新的 API Key
 
 ## 使用步驟
 
@@ -53,4 +76,9 @@ conn.close()
 - `stock.db` - SQLite 資料庫
 - `web_app.py` - Flask Web 應用程式
 - `create_db.py` - 建立資料庫腳本
+- `backtest.py` - 回測引擎
 - `templates/index.html` - K棒圖頁面
+- `templates/single_backtest.html` - 單檔回測頁面
+- `templates/multi_backtest.html` - 多檔回測頁面
+- `.env` - 環境變數設定（需自行創建）
+- `AI_SETUP.md` - AI 功能詳細設定說明
