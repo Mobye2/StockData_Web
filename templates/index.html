@@ -1,0 +1,199 @@
+{% extends "layout.html" %}
+
+{% block title %}K線圖查詢{% endblock %}
+
+{% block extra_style %}
+<style>
+    h1 { color: #333; text-align: center; margin-bottom: 20px; }
+    #controls { background: white; padding: 20px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); text-align: center; }
+    select, input { padding: 10px; font-size: 16px; margin: 0 10px; border: 1px solid #ddd; border-radius: 4px; }
+    button { padding: 10px 20px; font-size: 16px; background: #1976d2; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #1565c0; }
+    #chart { width: 100%; height: 600px; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    #stats { background: white; padding: 20px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .stat-item { display: inline-block; margin: 0 20px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>台股K棒圖查詢系統</h1>
+<div id="controls">
+    <select id="level1Select" onchange="loadLevel2()">
+        <option value="全部">全部</option>
+    </select>
+    <select id="level2Select" onchange="loadStocksBySector()">
+        <option value="">全部</option>
+    </select>
+    <select id="stockSelect">
+        <option value="">-- 選擇股票 --</option>
+    </select>
+    <input type="text" id="searchInput" placeholder="輸入代號或名稱">
+    <button onclick="searchStock()">查詢</button>
+</div>
+<div id="stats"></div>
+<div id="chart"></div>
+
+<script>
+    let stockList = [];
+    let chart = null;
+    let sectorsData = {};
+
+    // 載入族群列表
+    fetch('/api/sectors')
+        .then(res => res.json())
+        .then(sectors => {
+            sectorsData = sectors;
+            const select = document.getElementById('level1Select');
+            Object.keys(sectors).sort().forEach(level1 => {
+                const option = document.createElement('option');
+                option.value = level1;
+                option.text = level1;
+                select.appendChild(option);
+            });
+        });
+
+    // 載入第二層族群
+    function loadLevel2() {
+        const level1 = document.getElementById('level1Select').value;
+        const level2Select = document.getElementById('level2Select');
+        level2Select.innerHTML = '<option value="">全部</option>';
+        
+        if (level1 !== '全部' && sectorsData[level1]) {
+            sectorsData[level1].forEach(level2 => {
+                const option = document.createElement('option');
+                option.value = level2;
+                option.text = level2;
+                level2Select.appendChild(option);
+            });
+        }
+        
+        loadStocksBySector();
+    }
+
+    // 載入股票列表
+    function loadStocksBySector() {
+        const level1 = document.getElementById('level1Select').value;
+        const level2 = document.getElementById('level2Select').value;
+        
+        let url = `/api/stocks?level1=${encodeURIComponent(level1)}`;
+        if (level2) url += `&level2=${encodeURIComponent(level2)}`;
+        
+        fetch(url)
+            .then(res => res.json())
+            .then(stocks => {
+                stockList = stocks;
+                const select = document.getElementById('stockSelect');
+                select.innerHTML = '<option value="">-- 選擇股票 --</option>';
+                stocks.forEach(stock => {
+                    const option = document.createElement('option');
+                    option.value = stock.code;
+                    option.text = `${stock.code} ${stock.name}`;
+                    select.appendChild(option);
+                });
+                if (stocks.length > 0) loadStock(stocks[0].code);
+            });
+    }
+
+    loadStocksBySector();
+
+    document.getElementById('stockSelect').addEventListener('change', function() {
+        if (this.value) loadStock(this.value);
+    });
+
+    function searchStock() {
+        const input = document.getElementById('searchInput').value.trim();
+        if (!input) return;
+        
+        const found = stockList.find(s => 
+            s.code === input || s.name.includes(input)
+        );
+        
+        if (found) {
+            document.getElementById('stockSelect').value = found.code;
+            loadStock(found.code);
+        } else {
+            alert('找不到該股票');
+        }
+    }
+
+    function loadStock(code) {
+        const stock = stockList.find(s => s.code === code);
+        if (!stock) return;
+
+        fetch(`/api/data/${code}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.length === 0) {
+                    alert('無資料');
+                    return;
+                }
+                
+                const dates = data.map(d => d.日期);
+                const kdata = data.map(d => [d.開盤價, d.收盤價, d.最低價, d.最高價]);
+                const volumes = data.map(d => d.成交量);
+                
+                const latest = data[data.length - 1];
+                document.getElementById('stats').innerHTML = `
+                    <div class="stat-item"><strong>股票:</strong> ${stock.code} ${stock.name}</div>
+                    <div class="stat-item"><strong>最新日期:</strong> ${latest.日期}</div>
+                    <div class="stat-item"><strong>收盤價:</strong> ${latest.收盤價}</div>
+                    <div class="stat-item"><strong>漲跌:</strong> <span style="color:${latest.漲跌>=0?'red':'green'}">${latest.漲跌>0?'+':''}${latest.漲跌}</span></div>
+                    <div class="stat-item"><strong>成交量:</strong> ${(latest.成交量/1000000).toFixed(2)}M</div>
+                `;
+
+                if (!chart) {
+                    chart = echarts.init(document.getElementById('chart'));
+                }
+                
+                chart.setOption({
+                    title: { text: `${stock.name} (${stock.code}) 日K線圖`, left: 'center' },
+                    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+                    legend: { data: ['K線', '成交量'], top: 30 },
+                    grid: [
+                        { left: '10%', right: '10%', top: '15%', height: '50%' },
+                        { left: '10%', right: '10%', top: '70%', height: '15%' }
+                    ],
+                    xAxis: [
+                        { type: 'category', data: dates, gridIndex: 0 },
+                        { type: 'category', data: dates, gridIndex: 1 }
+                    ],
+                    yAxis: [
+                        { scale: true, gridIndex: 0 },
+                        { scale: true, gridIndex: 1 }
+                    ],
+                    dataZoom: [
+                        { type: 'inside', xAxisIndex: [0, 1], start: 80, end: 100 },
+                        { show: true, xAxisIndex: [0, 1], type: 'slider', top: '90%', start: 80, end: 100 }
+                    ],
+                    series: [
+                        {
+                            name: 'K線',
+                            type: 'candlestick',
+                            data: kdata,
+                            itemStyle: {
+                                color: '#ef5350',
+                                color0: '#26a69a',
+                                borderColor: '#ef5350',
+                                borderColor0: '#26a69a'
+                            },
+                            xAxisIndex: 0,
+                            yAxisIndex: 0
+                        },
+                        {
+                            name: '成交量',
+                            type: 'bar',
+                            data: volumes,
+                            xAxisIndex: 1,
+                            yAxisIndex: 1,
+                            itemStyle: { color: '#7cb5ec' }
+                        }
+                    ]
+                });
+            });
+    }
+
+    document.getElementById('searchInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') searchStock();
+    });
+</script>
+{% endblock %}

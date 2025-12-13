@@ -1,0 +1,876 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+    .strategy-box {
+        border: 2px solid #2196F3;
+        border-radius: 8px;
+        padding: 15px;
+        margin: 10px 0;
+        background: #f8f9fa;
+    }
+    .indicator-item {
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 10px;
+        margin: 8px 0;
+    }
+    .add-btn {
+        background: #4CAF50;
+        color: white;
+        border: none;
+        padding: 8px 15px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+    }
+    .remove-btn {
+        background: #f44336;
+        color: white;
+        border: none;
+        padding: 4px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+    }
+</style>
+
+<h1>回測系統 v2 (策略=指標組合)</h1>
+
+<div style="margin: 20px 0;">
+    <label>族群: </label>
+    <select id="level1Select" onchange="loadLevel2()" style="padding: 5px;">
+        <option value="全部">全部</option>
+    </select>
+    <select id="level2Select" onchange="loadStocksBySector()" style="padding: 5px; margin-left: 10px;">
+        <option value="">全部</option>
+    </select>
+    <label style="margin-left: 20px;">股票代碼: </label>
+    <select id="stockSelect" style="padding: 5px;">
+        <option value="2330">2330 台積電</option>
+    </select>
+    <label style="margin-left: 20px;">初始資金: </label>
+    <input type="number" id="initialCapital" value="1000000" style="width: 120px;">
+</div>
+
+<div style="display: flex; gap: 30px;">
+    <div style="flex: 1;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3>買進策略 (任一策略達標即買進)</h3>
+            <div style="display: flex; gap: 5px;">
+                <button onclick="saveBuyStrategy()" style="padding: 5px 10px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">💾</button>
+                <select id="savedBuyStrategies" onchange="loadSavedBuyStrategy()" style="padding: 5px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px;">
+                    <option value="">-- 載入 --</option>
+                </select>
+                <button onclick="deleteBuyStrategy()" style="padding: 5px 10px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">🗑️</button>
+            </div>
+        </div>
+        <button class="add-btn" onclick="addBuyStrategy()">➕ 新增買進策略</button>
+        <div id="buyStrategies"></div>
+    </div>
+    
+    <div style="flex: 1;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3>賣出策略 (任一策略達標即賣出)</h3>
+            <div style="display: flex; gap: 5px;">
+                <button onclick="saveSellStrategy()" style="padding: 5px 10px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">💾</button>
+                <select id="savedSellStrategies" onchange="loadSavedSellStrategy()" style="padding: 5px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px;">
+                    <option value="">-- 載入 --</option>
+                </select>
+                <button onclick="deleteSellStrategy()" style="padding: 5px 10px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">🗑️</button>
+            </div>
+        </div>
+        <button class="add-btn" onclick="addSellStrategy()">➕ 新增賣出策略</button>
+        <div id="sellStrategies"></div>
+    </div>
+</div>
+
+<div style="margin: 20px 0;">
+    <button onclick="runBacktest()" style="padding: 10px 30px; background: #ff9800; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px;">執行回測</button>
+</div>
+
+<div id="results" style="display: none;"></div>
+<div id="chart" style="width: 100%; height: 750px; margin-top: 20px;"></div>
+
+<script>
+let buyStrategies = [];
+let sellStrategies = [];
+let buyStrategyCounter = 0;
+let sellStrategyCounter = 0;
+
+function confirmBuyStrategy(id) {
+    const strategy = buyStrategies.find(s => s.id === id);
+    if (strategy && strategy.indicators.length > 0) {
+        strategy.confirmed = true;
+        renderBuyStrategies();
+    } else {
+        alert('策略至少需要一個指標');
+    }
+}
+
+function confirmSellStrategy(id) {
+    const strategy = sellStrategies.find(s => s.id === id);
+    if (strategy && strategy.indicators.length > 0) {
+        strategy.confirmed = true;
+        renderSellStrategies();
+    } else {
+        alert('策略至少需要一個指標');
+    }
+}
+
+function editBuyStrategy(id) {
+    const strategy = buyStrategies.find(s => s.id === id);
+    if (strategy) {
+        strategy.confirmed = false;
+        renderBuyStrategies();
+    }
+}
+
+function editSellStrategy(id) {
+    const strategy = sellStrategies.find(s => s.id === id);
+    if (strategy) {
+        strategy.confirmed = false;
+        renderSellStrategies();
+    }
+}
+
+const indicatorConfigs = {
+    ma_crossover: { name: 'MA均線交叉', category: '技術類', params: { short_window: 5, long_window: 20 } },
+    rsi: { name: 'RSI指標', category: '技術類', params: { period: 14, buy_threshold: 30, sell_threshold: 70 } },
+    high_volume: { name: '爆量', category: '技術類', params: { volume_multiplier: 2.0 } },
+    ma_slope_up: { name: 'MA向上', category: '技術類', params: { window: 20, threshold: 10, hold_days: 3 } },
+    ma_slope_down: { name: 'MA向下', category: '技術類', params: { window: 20, threshold: -10, hold_days: 3 } },
+    take_profit: { name: '停利', category: '風控類', params: { profit_pct: 10 } },
+    stop_loss: { name: '停損', category: '風控類', params: { loss_pct: -5 } },
+    foreign_consecutive_buy: { name: '外資連續買超', category: '籌碼類', params: { days: 3 } },
+    trust_consecutive_buy: { name: '投信連續買超', category: '籌碼類', params: { days: 3 } },
+    dealer_consecutive_buy: { name: '自營商連續買超', category: '籌碼類', params: { days: 3 } },
+    foreign_consecutive_sell: { name: '外資連續賣超', category: '籌碼類', params: { days: 3 } },
+    trust_consecutive_sell: { name: '投信連續賣超', category: '籌碼類', params: { days: 3 } },
+    foreign_holding_high: { name: '外資持股比高', category: '籌碼類', params: { threshold: 30 } },
+    foreign_holding_low: { name: '外資持股比低', category: '籌碼類', params: { threshold: 10 } }
+};
+
+function addBuyStrategy() {
+    const id = ++buyStrategyCounter;
+    buyStrategies.push({ id, indicators: [], confirmed: false });
+    renderBuyStrategies();
+}
+
+function addSellStrategy() {
+    const id = ++sellStrategyCounter;
+    sellStrategies.push({ id, indicators: [], confirmed: false });
+    renderSellStrategies();
+}
+
+function removeBuyStrategy(id) {
+    buyStrategies = buyStrategies.filter(s => s.id !== id);
+    renderBuyStrategies();
+}
+
+function removeSellStrategy(id) {
+    sellStrategies = sellStrategies.filter(s => s.id !== id);
+    renderSellStrategies();
+}
+
+function addIndicatorToBuy(strategyId) {
+    const strategy = buyStrategies.find(s => s.id === strategyId);
+    if (strategy) {
+        strategy.indicators.push({ type: 'ma_crossover', params: {...indicatorConfigs.ma_crossover.params} });
+        renderBuyStrategies();
+    }
+}
+
+function addIndicatorToSell(strategyId) {
+    const strategy = sellStrategies.find(s => s.id === strategyId);
+    if (strategy) {
+        strategy.indicators.push({ type: 'ma_crossover', params: {...indicatorConfigs.ma_crossover.params} });
+        renderSellStrategies();
+    }
+}
+
+function removeIndicatorFromBuy(strategyId, indicatorIdx) {
+    const strategy = buyStrategies.find(s => s.id === strategyId);
+    if (strategy) {
+        strategy.indicators.splice(indicatorIdx, 1);
+        renderBuyStrategies();
+    }
+}
+
+function removeIndicatorFromSell(strategyId, indicatorIdx) {
+    const strategy = sellStrategies.find(s => s.id === strategyId);
+    if (strategy) {
+        strategy.indicators.splice(indicatorIdx, 1);
+        renderSellStrategies();
+    }
+}
+
+function changeIndicatorType(strategyId, indicatorIdx, isBuy) {
+    const strategies = isBuy ? buyStrategies : sellStrategies;
+    const strategy = strategies.find(s => s.id === strategyId);
+    if (strategy && strategy.indicators[indicatorIdx]) {
+        const select = event.target;
+        const newType = select.value;
+        strategy.indicators[indicatorIdx] = { 
+            type: newType, 
+            params: {...indicatorConfigs[newType].params} 
+        };
+        isBuy ? renderBuyStrategies() : renderSellStrategies();
+    }
+}
+
+function updateParam(strategyId, indicatorIdx, paramName, isBuy) {
+    const strategies = isBuy ? buyStrategies : sellStrategies;
+    const strategy = strategies.find(s => s.id === strategyId);
+    if (strategy && strategy.indicators[indicatorIdx]) {
+        strategy.indicators[indicatorIdx].params[paramName] = parseFloat(event.target.value);
+    }
+}
+
+function renderBuyStrategies() {
+    const container = document.getElementById('buyStrategies');
+    container.innerHTML = buyStrategies.map(strategy => {
+        if (strategy.confirmed) {
+            return `
+                <div class="strategy-box" style="background: #e8f5e9;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <strong>✓ 策略 ${strategy.id} (${strategy.indicators.length} 個指標)</strong>
+                        <div>
+                            <button class="add-btn" onclick="editBuyStrategy(${strategy.id})" style="background: #2196F3; margin-right: 5px;">編輯</button>
+                            <button class="remove-btn" onclick="removeBuyStrategy(${strategy.id})">刪除</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        return `
+            <div class="strategy-box">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <strong>策略 ${strategy.id} (所有指標都達標才買進)</strong>
+                    <button class="remove-btn" onclick="removeBuyStrategy(${strategy.id})">刪除策略</button>
+                </div>
+                ${strategy.indicators.map((ind, idx) => `
+                    <div class="indicator-item">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <select onchange="changeIndicatorType(${strategy.id}, ${idx}, true)">
+                                ${Object.entries(indicatorConfigs).reduce((acc, [key, config]) => {
+                                    if (!acc.categories.includes(config.category)) {
+                                        acc.categories.push(config.category);
+                                        acc.html += `<optgroup label="${config.category}">`;
+                                    }
+                                    acc.html += `<option value="${key}" ${ind.type === key ? 'selected' : ''}>${config.name}</option>`;
+                                    return acc;
+                                }, { categories: [], html: '' }).html + '</optgroup>'}
+                            </select>
+                            <button class="remove-btn" onclick="removeIndicatorFromBuy(${strategy.id}, ${idx})">✕</button>
+                        </div>
+                        <div style="margin-top: 8px;">
+                            ${Object.keys(ind.params).map(param => `
+                                <label style="margin-right: 10px; font-size: 13px;">
+                                    ${param}: <input type="number" step="1" value="${ind.params[param]}" 
+                                        onchange="updateParam(${strategy.id}, ${idx}, '${param}', true)" 
+                                        style="width: 70px;">
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+                `).join('')}
+                <div style="margin-top: 10px; display: flex; gap: 10px;">
+                    <button class="add-btn" onclick="addIndicatorToBuy(${strategy.id})" style="font-size: 12px; padding: 5px 10px;">➕ 新增指標</button>
+                    <button class="add-btn" onclick="confirmBuyStrategy(${strategy.id})" style="background: #ff9800; font-size: 12px; padding: 5px 10px;">✓ 完成</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderSellStrategies() {
+    const container = document.getElementById('sellStrategies');
+    container.innerHTML = sellStrategies.map(strategy => {
+        if (strategy.confirmed) {
+            return `
+                <div class="strategy-box" style="background: #e8f5e9;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <strong>✓ 策略 ${strategy.id} (${strategy.indicators.length} 個指標)</strong>
+                        <div>
+                            <button class="add-btn" onclick="editSellStrategy(${strategy.id})" style="background: #2196F3; margin-right: 5px;">編輯</button>
+                            <button class="remove-btn" onclick="removeSellStrategy(${strategy.id})">刪除</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        return `
+            <div class="strategy-box">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <strong>策略 ${strategy.id} (所有指標都達標才賣出)</strong>
+                    <button class="remove-btn" onclick="removeSellStrategy(${strategy.id})">刪除策略</button>
+                </div>
+                ${strategy.indicators.map((ind, idx) => `
+                    <div class="indicator-item">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <select onchange="changeIndicatorType(${strategy.id}, ${idx}, false)">
+                                ${Object.entries(indicatorConfigs).reduce((acc, [key, config]) => {
+                                    if (!acc.categories.includes(config.category)) {
+                                        acc.categories.push(config.category);
+                                        acc.html += `<optgroup label="${config.category}">`;
+                                    }
+                                    acc.html += `<option value="${key}" ${ind.type === key ? 'selected' : ''}>${config.name}</option>`;
+                                    return acc;
+                                }, { categories: [], html: '' }).html + '</optgroup>'}
+                            </select>
+                            <button class="remove-btn" onclick="removeIndicatorFromSell(${strategy.id}, ${idx})">✕</button>
+                        </div>
+                        <div style="margin-top: 8px;">
+                            ${Object.keys(ind.params).map(param => `
+                                <label style="margin-right: 10px; font-size: 13px;">
+                                    ${param}: <input type="number" step="1" value="${ind.params[param]}" 
+                                        onchange="updateParam(${strategy.id}, ${idx}, '${param}', false)" 
+                                        style="width: 70px;">
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+                `).join('')}
+                <div style="margin-top: 10px; display: flex; gap: 10px;">
+                    <button class="add-btn" onclick="addIndicatorToSell(${strategy.id})" style="font-size: 12px; padding: 5px 10px;">➕ 新增指標</button>
+                    <button class="add-btn" onclick="confirmSellStrategy(${strategy.id})" style="background: #ff9800; font-size: 12px; padding: 5px 10px;">✓ 完成</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+let currentData = null;
+let allBacktestResults = [];
+
+function runBacktest() {
+    if (buyStrategies.length === 0 || sellStrategies.length === 0) {
+        alert('請至少新增一個買進策略和一個賣出策略');
+        return;
+    }
+    
+    const hasEmptyBuy = buyStrategies.some(s => s.indicators.length === 0);
+    const hasEmptySell = sellStrategies.some(s => s.indicators.length === 0);
+    if (hasEmptyBuy || hasEmptySell) {
+        alert('每個策略至少需要一個指標');
+        return;
+    }
+    
+    const hasUnconfirmedBuy = buyStrategies.some(s => !s.confirmed);
+    const hasUnconfirmedSell = sellStrategies.some(s => !s.confirmed);
+    if (hasUnconfirmedBuy || hasUnconfirmedSell) {
+        alert('請先完成所有策略的設定');
+        return;
+    }
+    
+    const code = document.getElementById('stockSelect').value;
+    const initialCapital = document.getElementById('initialCapital').value;
+    
+    const buyData = buyStrategies.map(s => ({ indicators: s.indicators }));
+    const sellData = sellStrategies.map(s => ({ indicators: s.indicators }));
+    
+    fetch(`/api/backtest/${code}?buy_strategies=${encodeURIComponent(JSON.stringify(buyData))}&sell_strategies=${encodeURIComponent(JSON.stringify(sellData))}&initial_capital=${initialCapital}`)
+        .then(res => res.json())
+        .then(result => {
+            if (result.error) {
+                alert('回測失敗: ' + result.error);
+                return;
+            }
+            allBacktestResults = [result];
+            displayResults([result]);
+            loadChartData(code);
+        })
+        .catch(err => {
+            alert('回測失敗: ' + err.message);
+        });
+}
+
+function loadChartData(code) {
+    fetch(`/api/data/${code}`)
+        .then(res => res.json())
+        .then(data => {
+            currentData = data;
+            drawChart(data, allBacktestResults);
+        });
+}
+
+function displayResults(results) {
+    const resultsDiv = document.getElementById('results');
+    resultsDiv.style.display = 'block';
+    
+    let html = '<h2>回測結果</h2>';
+    
+    results.forEach((result, idx) => {
+        const profit = result.profit;
+        const returnRate = result.return_rate;
+        
+        html += `
+            <div style="background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin: 20px 0;">
+                <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: center;">
+                    <span>初始資金: <strong>${result.initial_capital.toLocaleString()}</strong></span>
+                    <span>最終價值: <strong>${result.final_value.toLocaleString()}</strong></span>
+                    <span>獲利: <strong style="color: ${profit >= 0 ? '#f44336' : '#4caf50'};">${profit.toLocaleString()}</strong></span>
+                    <span>報酬率: <strong style="color: ${returnRate >= 0 ? '#f44336' : '#4caf50'};">${returnRate.toFixed(2)}%</strong></span>
+                    <span>交易次數: <strong>${result.total_trades}</strong></span>
+                    <span>勝率: <strong style="color: ${result.win_rate >= 50 ? '#4caf50' : '#f44336'};">${result.win_rate.toFixed(2)}%</strong></span>
+                    <button id="toggleDetail${idx}" onclick="toggleTradeDetails(${idx})" style="padding: 5px 15px; background: #ff9800; color: white; border: none; border-radius: 4px; cursor: pointer;">📊 查看交易明細</button>
+                </div>
+                <div id="tradeDetail${idx}" style="display: none;"></div>
+            </div>
+        `;
+    });
+    
+    resultsDiv.innerHTML = html;
+}
+
+function toggleTradeDetails(resultIdx) {
+    const detailDiv = document.getElementById(`tradeDetail${resultIdx}`);
+    const btn = document.getElementById(`toggleDetail${resultIdx}`);
+    
+    if (detailDiv.style.display === 'none') {
+        const result = allBacktestResults[resultIdx];
+        const sellTrades = result.trades.filter(t => t.類型 === '賣出');
+        
+        let html = '<h3 style="margin-top: 15px;">交易明細</h3><table style="width:100%; border-collapse: collapse; margin-top: 10px; font-size: 11px;"><thead><tr style="background: #f5f5f5;"><th style="padding: 6px; text-align: center; border: 1px solid #ddd;">#</th><th style="padding: 6px; text-align: center; border: 1px solid #ddd;">買入日期</th><th style="padding: 6px; text-align: center; border: 1px solid #ddd;">買入策略</th><th style="padding: 6px; text-align: center; border: 1px solid #ddd;">買入價</th><th style="padding: 6px; text-align: center; border: 1px solid #ddd;">賣出日期</th><th style="padding: 6px; text-align: center; border: 1px solid #ddd;">賣出策略</th><th style="padding: 6px; text-align: center; border: 1px solid #ddd;">賣出價</th><th style="padding: 6px; text-align: center; border: 1px solid #ddd;">數量</th><th style="padding: 6px; text-align: center; border: 1px solid #ddd;">獲利</th><th style="padding: 6px; text-align: center; border: 1px solid #ddd;">報酬率</th><th style="padding: 6px; text-align: center; border: 1px solid #ddd;">賣出原因</th></tr></thead><tbody>';
+        
+        sellTrades.forEach(trade => {
+            const buyRecords = trade.買入記錄 || [];
+            const buyDates = buyRecords.map(r => r.日期).join(', ');
+            const avgBuyPrice = buyRecords.length > 0 ? (buyRecords.reduce((sum, r) => sum + r.價格 * r.數量, 0) / trade.數量).toFixed(2) : 0;
+            const profitClass = trade.獲利 >= 0 ? '#f44336' : '#4caf50';
+            
+            const buyStrategy = result.trades.find(t => t.類型 === '買入' && buyRecords.some(r => r.日期 === t.日期));
+            const buyStrategyNum = buyStrategy && buyStrategy.策略編號 ? buyStrategy.策略編號.join(',') : '-';
+            const sellStrategyNum = trade.策略編號 ? trade.策略編號.join(',') : '-';
+            const tradeNum = buyStrategy && buyStrategy.交易編號 ? buyStrategy.交易編號 : '-';
+            
+            html += `<tr>
+                <td style="padding: 6px; text-align: center; border: 1px solid #ddd; font-size: 11px; font-weight: bold;">${tradeNum}</td>
+                <td style="padding: 6px; text-align: center; border: 1px solid #ddd; font-size: 11px;">${buyDates}</td>
+                <td style="padding: 6px; text-align: center; border: 1px solid #ddd; font-size: 11px;">${buyStrategyNum}</td>
+                <td style="padding: 6px; text-align: center; border: 1px solid #ddd; font-size: 11px;">${avgBuyPrice}</td>
+                <td style="padding: 6px; text-align: center; border: 1px solid #ddd; font-size: 11px;">${trade.日期}</td>
+                <td style="padding: 6px; text-align: center; border: 1px solid #ddd; font-size: 11px;">${sellStrategyNum}</td>
+                <td style="padding: 6px; text-align: center; border: 1px solid #ddd; font-size: 11px;">${trade.價格.toFixed(2)}</td>
+                <td style="padding: 6px; text-align: center; border: 1px solid #ddd; font-size: 11px;">${trade.數量.toLocaleString()}</td>
+                <td style="padding: 6px; text-align: center; border: 1px solid #ddd; font-size: 11px; font-weight: bold; color: ${profitClass};">${trade.獲利.toLocaleString()}</td>
+                <td style="padding: 6px; text-align: center; border: 1px solid #ddd; font-size: 11px; font-weight: bold; color: ${profitClass};">${trade.報酬率.toFixed(2)}%</td>
+                <td style="padding: 6px; text-align: center; border: 1px solid #ddd; font-size: 11px;">${trade.賣出原因 || '-'}</td>
+            </tr>`;
+        });
+        
+        html += '</tbody></table>';
+        detailDiv.innerHTML = html;
+        detailDiv.style.display = 'block';
+        btn.textContent = '✖ 收起明細';
+    } else {
+        detailDiv.style.display = 'none';
+        btn.textContent = '📊 查看交易明細';
+    }
+}
+
+function drawChart(data, results) {
+    const chart = echarts.init(document.getElementById('chart'));
+    const dates = data.map(d => d.日期);
+    const klineData = data.map(d => [d.開盤價, d.收盤價, d.最低價, d.最高價]);
+    const volumeData = data.map(d => d.成交量);
+    
+    const ma5Data = data.map(d => d.MA5 || null);
+    const ma10Data = data.map(d => d.MA10 || null);
+    const ma20Data = data.map(d => d.MA20 || null);
+    
+    const series = [
+        {
+            name: 'K線',
+            type: 'candlestick',
+            data: klineData,
+            itemStyle: {
+                color: '#ef5350',
+                color0: '#26a69a',
+                borderColor: '#ef5350',
+                borderColor0: '#26a69a'
+            },
+            xAxisIndex: 0,
+            yAxisIndex: 0
+        },
+        {
+            name: 'MA5',
+            type: 'line',
+            data: ma5Data,
+            smooth: true,
+            showSymbol: false,
+            lineStyle: { width: 1, color: 'rgba(255, 193, 7, 0.6)' },
+            xAxisIndex: 0,
+            yAxisIndex: 0
+        },
+        {
+            name: 'MA10',
+            type: 'line',
+            data: ma10Data,
+            smooth: true,
+            showSymbol: false,
+            lineStyle: { width: 1, color: 'rgba(33, 150, 243, 0.6)' },
+            xAxisIndex: 0,
+            yAxisIndex: 0
+        },
+        {
+            name: 'MA20',
+            type: 'line',
+            data: ma20Data,
+            smooth: true,
+            showSymbol: false,
+            lineStyle: { width: 1, color: 'rgba(156, 39, 176, 0.6)' },
+            xAxisIndex: 0,
+            yAxisIndex: 0
+        },
+        {
+            name: '成交量',
+            type: 'bar',
+            data: volumeData,
+            xAxisIndex: 1,
+            yAxisIndex: 1,
+            itemStyle: { color: 'rgba(100, 150, 200, 0.5)' }
+        }
+    ];
+    
+    const foreignData = data.map(d => {
+        const val = d['外資買賣超'];
+        return (val !== undefined && val !== null && val !== 0) ? val / 1000 : null;
+    });
+    const trustData = data.map(d => {
+        const val = d['投信買賣超'];
+        return (val !== undefined && val !== null && val !== 0) ? val / 1000 : null;
+    });
+    const dealerData = data.map(d => {
+        const val = d['自營商買賣超'];
+        return (val !== undefined && val !== null && val !== 0) ? val / 1000 : null;
+    });
+    
+    const hasChipData = foreignData.some(v => v !== null) || trustData.some(v => v !== null) || dealerData.some(v => v !== null);
+    if (!hasChipData) {
+        console.warn('無籌碼資料，請執行 fetch_chip_data.py 擷取籌碼資料');
+    }
+    
+    series.push({
+        name: '外資買賣超',
+        type: 'line',
+        data: foreignData,
+        xAxisIndex: 2,
+        yAxisIndex: 2,
+        showSymbol: false,
+        lineStyle: { width: 2, color: 'rgba(255, 99, 132, 0.8)' }
+    });
+    
+    series.push({
+        name: '投信買賣超',
+        type: 'line',
+        data: trustData,
+        xAxisIndex: 2,
+        yAxisIndex: 2,
+        showSymbol: false,
+        lineStyle: { width: 2, color: 'rgba(54, 162, 235, 0.8)' }
+    });
+    
+    series.push({
+        name: '自營商買賣超',
+        type: 'line',
+        data: dealerData,
+        xAxisIndex: 2,
+        yAxisIndex: 2,
+        showSymbol: false,
+        lineStyle: { width: 2, color: 'rgba(75, 192, 192, 0.8)' }
+    });
+    
+    const legendData = ['K線', 'MA5', 'MA10', 'MA20', '成交量', '外資買賣超', '投信買賣超', '自營商買賣超'];
+    
+    results.forEach((result, idx) => {
+        const buyPoints = [];
+        const sellPoints = [];
+        
+        result.trades.forEach(trade => {
+            const dateIdx = dates.indexOf(trade.日期);
+            if (dateIdx !== -1) {
+                if (trade.類型 === '買入') {
+                    buyPoints.push({
+                        value: [dateIdx, trade.價格],
+                        label: { show: true, formatter: String(trade.交易編號 || ''), position: 'top', color: '#fff', backgroundColor: '#f44336', padding: 3, borderRadius: 3, fontSize: 10 }
+                    });
+                } else if (trade.類型 === '賣出') {
+                    const buyTrade = result.trades.find(t => t.類型 === '買入' && trade.買入記錄 && trade.買入記錄.some(r => r.日期 === t.日期));
+                    sellPoints.push({
+                        value: [dateIdx, trade.價格],
+                        label: { show: true, formatter: buyTrade && buyTrade.交易編號 ? String(buyTrade.交易編號) : '', position: 'top', color: '#fff', backgroundColor: '#4caf50', padding: 3, borderRadius: 3, fontSize: 10 }
+                    });
+                }
+            }
+        });
+        
+        series.push({
+            name: '買入',
+            type: 'scatter',
+            data: buyPoints,
+            symbol: 'pin',
+            symbolSize: 35,
+            itemStyle: { color: '#f44336' },
+            xAxisIndex: 0,
+            yAxisIndex: 0,
+            z: 10
+        });
+        
+        series.push({
+            name: '賣出',
+            type: 'scatter',
+            data: sellPoints,
+            symbol: 'pin',
+            symbolSize: 35,
+            itemStyle: { color: '#4caf50' },
+            tooltip: {
+                formatter: function(params) {
+                    const dateIdx = params.data.value[0];
+                    const trade = result.trades.find(t => t.類型 === '賣出' && dates.indexOf(t.日期) === dateIdx);
+                    let info = `日期: ${dates[dateIdx]}<br/>價格: ${params.data.value[1]}`;
+                    if (trade && trade.賣出原因) {
+                        info += `<br/>賣出原因: ${trade.賣出原因}`;
+                    }
+                    return info;
+                }
+            },
+            xAxisIndex: 0,
+            yAxisIndex: 0,
+            z: 10
+        });
+        
+        legendData.push('買入', '賣出');
+        
+        const equityData = dates.map(date => {
+            const equity = result.equity_curve.find(e => e.日期 === date);
+            return equity ? equity.已實現損益 : null;
+        });
+        
+        series.push({
+            name: '已實現損益',
+            type: 'line',
+            data: equityData,
+            smooth: true,
+            showSymbol: false,
+            lineStyle: { width: 2, color: '#ff9800' },
+            xAxisIndex: 3,
+            yAxisIndex: 3
+        });
+        
+        legendData.push('已實現損益');
+    });
+    
+    chart.setOption({
+        title: { text: '回測K線圖', left: 'center' },
+        tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+        legend: { data: legendData, top: 30, type: 'scroll' },
+        grid: [
+            { left: '8%', right: '3%', top: '10%', height: '28%' },
+            { left: '8%', right: '3%', top: '42%', height: '10%' },
+            { left: '8%', right: '3%', top: '56%', height: '12%' },
+            { left: '8%', right: '3%', top: '72%', height: '15%' }
+        ],
+        xAxis: [
+            { type: 'category', data: dates, gridIndex: 0 },
+            { type: 'category', data: dates, gridIndex: 1 },
+            { type: 'category', data: dates, gridIndex: 2 },
+            { type: 'category', data: dates, gridIndex: 3 }
+        ],
+        yAxis: [
+            { scale: true, gridIndex: 0, name: '價格' },
+            { scale: true, gridIndex: 1, name: '成交量' },
+            { scale: true, gridIndex: 2, name: '三大法人(張)' },
+            { scale: true, gridIndex: 3, name: '已實現損益' }
+        ],
+        dataZoom: [
+            { type: 'inside', xAxisIndex: [0, 1, 2, 3], start: 80, end: 100 },
+            { show: true, xAxisIndex: [0, 1, 2, 3], type: 'slider', bottom: '1%', start: 80, end: 100 }
+        ],
+        series: series
+    });
+}
+
+function saveBuyStrategy() {
+    if (buyStrategies.length === 0) {
+        alert('請先設定買進策略');
+        return;
+    }
+    const name = prompt('請輸入買進策略名稱:');
+    if (!name) return;
+    let saved = JSON.parse(localStorage.getItem('savedBuyStrategies') || '[]');
+    saved.push({ name, strategies: buyStrategies.map(s => ({ indicators: s.indicators })) });
+    localStorage.setItem('savedBuyStrategies', JSON.stringify(saved));
+    loadSavedBuyStrategiesList();
+    alert('買進策略已儲存!');
+}
+
+function saveSellStrategy() {
+    if (sellStrategies.length === 0) {
+        alert('請先設定賣出策略');
+        return;
+    }
+    const name = prompt('請輸入賣出策略名稱:');
+    if (!name) return;
+    let saved = JSON.parse(localStorage.getItem('savedSellStrategies') || '[]');
+    saved.push({ name, strategies: sellStrategies.map(s => ({ indicators: s.indicators })) });
+    localStorage.setItem('savedSellStrategies', JSON.stringify(saved));
+    loadSavedSellStrategiesList();
+    alert('賣出策略已儲存!');
+}
+
+function loadSavedBuyStrategiesList() {
+    const select = document.getElementById('savedBuyStrategies');
+    const saved = JSON.parse(localStorage.getItem('savedBuyStrategies') || '[]');
+    select.innerHTML = '<option value="">-- 載入 --</option>';
+    saved.forEach((strategy, idx) => {
+        const option = document.createElement('option');
+        option.value = idx;
+        option.text = strategy.name;
+        select.appendChild(option);
+    });
+}
+
+function loadSavedSellStrategiesList() {
+    const select = document.getElementById('savedSellStrategies');
+    const saved = JSON.parse(localStorage.getItem('savedSellStrategies') || '[]');
+    select.innerHTML = '<option value="">-- 載入 --</option>';
+    saved.forEach((strategy, idx) => {
+        const option = document.createElement('option');
+        option.value = idx;
+        option.text = strategy.name;
+        select.appendChild(option);
+    });
+}
+
+function loadSavedBuyStrategy() {
+    const select = document.getElementById('savedBuyStrategies');
+    const idx = select.value;
+    if (idx === '') return;
+    const saved = JSON.parse(localStorage.getItem('savedBuyStrategies') || '[]');
+    const strategy = saved[idx];
+    if (!strategy) return;
+    buyStrategies = [];
+    buyStrategyCounter = 0;
+    strategy.strategies.forEach(s => {
+        const id = ++buyStrategyCounter;
+        buyStrategies.push({ id, indicators: s.indicators, confirmed: false });
+    });
+    renderBuyStrategies();
+    alert('買進策略已載入!');
+}
+
+function loadSavedSellStrategy() {
+    const select = document.getElementById('savedSellStrategies');
+    const idx = select.value;
+    if (idx === '') return;
+    const saved = JSON.parse(localStorage.getItem('savedSellStrategies') || '[]');
+    const strategy = saved[idx];
+    if (!strategy) return;
+    sellStrategies = [];
+    sellStrategyCounter = 0;
+    strategy.strategies.forEach(s => {
+        const id = ++sellStrategyCounter;
+        sellStrategies.push({ id, indicators: s.indicators, confirmed: false });
+    });
+    renderSellStrategies();
+    alert('賣出策略已載入!');
+}
+
+function deleteBuyStrategy() {
+    const select = document.getElementById('savedBuyStrategies');
+    const idx = select.value;
+    if (idx === '') {
+        alert('請先選擇要刪除的策略');
+        return;
+    }
+    if (!confirm('確定要刪除此買進策略?')) return;
+    let saved = JSON.parse(localStorage.getItem('savedBuyStrategies') || '[]');
+    saved.splice(idx, 1);
+    localStorage.setItem('savedBuyStrategies', JSON.stringify(saved));
+    loadSavedBuyStrategiesList();
+    alert('買進策略已刪除!');
+}
+
+function deleteSellStrategy() {
+    const select = document.getElementById('savedSellStrategies');
+    const idx = select.value;
+    if (idx === '') {
+        alert('請先選擇要刪除的策略');
+        return;
+    }
+    if (!confirm('確定要刪除此賣出策略?')) return;
+    let saved = JSON.parse(localStorage.getItem('savedSellStrategies') || '[]');
+    saved.splice(idx, 1);
+    localStorage.setItem('savedSellStrategies', JSON.stringify(saved));
+    loadSavedSellStrategiesList();
+    alert('賣出策略已刪除!');
+}
+
+let sectorsData = {};
+
+function loadLevel2() {
+    const level1 = document.getElementById('level1Select').value;
+    const level2Select = document.getElementById('level2Select');
+    level2Select.innerHTML = '<option value="">全部</option>';
+    
+    if (level1 !== '全部' && sectorsData[level1]) {
+        sectorsData[level1].forEach(level2 => {
+            const option = document.createElement('option');
+            option.value = level2;
+            option.text = level2;
+            level2Select.appendChild(option);
+        });
+    }
+    
+    loadStocksBySector();
+}
+
+function loadStocksBySector() {
+    const level1 = document.getElementById('level1Select').value;
+    const level2 = document.getElementById('level2Select').value;
+    
+    let url = `/api/stocks?level1=${encodeURIComponent(level1)}`;
+    if (level2) url += `&level2=${encodeURIComponent(level2)}`;
+    
+    fetch(url)
+        .then(res => res.json())
+        .then(stocks => {
+            const select = document.getElementById('stockSelect');
+            select.innerHTML = '';
+            stocks.forEach(stock => {
+                const option = document.createElement('option');
+                option.value = stock.code;
+                option.text = `${stock.code} ${stock.name}`;
+                select.appendChild(option);
+            });
+        })
+        .catch(err => {
+            console.error('載入股票列表失敗:', err);
+        });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    fetch('/api/sectors')
+        .then(res => res.json())
+        .then(sectors => {
+            sectorsData = sectors;
+            const select = document.getElementById('level1Select');
+            Object.keys(sectors).sort().forEach(level1 => {
+                const option = document.createElement('option');
+                option.value = level1;
+                option.text = level1;
+                select.appendChild(option);
+            });
+            loadStocksBySector();
+        });
+    
+    loadSavedBuyStrategiesList();
+    loadSavedSellStrategiesList();
+    addBuyStrategy();
+    addSellStrategy();
+});
+</script>
+{% endblock %}
