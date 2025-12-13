@@ -1,0 +1,6 @@
+[submodule "reference/Finmind/FinMind"]
+	path = reference/Finmind/FinMind
+	url = https://github.com/FinMind/FinMind
+[submodule "reference/twstock"]
+	path = reference/twstock
+	url = https://github.com/mlouielu/twstock
