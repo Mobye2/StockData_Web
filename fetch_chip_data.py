@@ -172,14 +172,14 @@ if __name__ == '__main__':
         now = datetime.now()
         target_date = now.date() if now.hour >= 20 else (now - timedelta(days=1)).date()
         
-        # if last_chip_date:
-        #     last_dt = datetime.strptime(last_chip_date, '%Y-%m-%d')
-        #     if last_dt.date() >= target_date:
-        #         print(f'  最後籌碼資料: {last_chip_date}，已是最新，跳過', flush=True)
-        #         continue
-        #     fetch_start = (last_dt + timedelta(days=1)).strftime('%Y-%m-%d')
-        # else:
-        fetch_start = start_date
+        if last_chip_date:
+            last_dt = datetime.strptime(last_chip_date, '%Y-%m-%d')
+            if last_dt.date() >= target_date:
+                print(f'  最後籌碼資料: {last_chip_date}，已是最新，跳過', flush=True)
+                continue
+            fetch_start = (last_dt + timedelta(days=1)).strftime('%Y-%m-%d')
+        else:
+            fetch_start = start_date
         
         margin_df = fetch_margin_data(stock_id, fetch_start)
         institutional_df = fetch_institutional_data(stock_id, fetch_start)

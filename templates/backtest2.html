@@ -88,6 +88,7 @@
 
 <div style="margin: 20px 0;">
     <button onclick="runBacktest()" style="padding: 10px 30px; background: #ff9800; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px;">執行回測</button>
+    <button onclick="testAI()" style="padding: 10px 30px; background: #9c27b0; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin-left: 10px;">測試AI連線</button>
 </div>
 
 <div id="results" style="display: none;"></div>
@@ -416,6 +417,7 @@ function displayResults(results) {
                     <span>交易次數: <strong>${result.total_trades}</strong></span>
                     <span>勝率: <strong style="color: ${result.win_rate >= 50 ? '#4caf50' : '#f44336'};">${result.win_rate.toFixed(2)}%</strong></span>
                     <button id="toggleDetail${idx}" onclick="toggleTradeDetails(${idx})" style="padding: 5px 15px; background: #ff9800; color: white; border: none; border-radius: 4px; cursor: pointer;">📊 查看交易明細</button>
+                    <button onclick="analyzeWithAI(${idx})" style="padding: 5px 15px; background: #9c27b0; color: white; border: none; border-radius: 4px; cursor: pointer;">🤖 AI分析</button>
                 </div>
                 <div id="tradeDetail${idx}" style="display: none;"></div>
             </div>
@@ -535,52 +537,61 @@ function drawChart(data, results) {
         }
     ];
     
+    // 檢查籌碼欄位
+    console.log('檢查第一筆資料:', data[0]);
+    console.log('檢查欄位名稱:', Object.keys(data[0] || {}));
+    
     const foreignData = data.map(d => {
         const val = d['外資買賣超'];
-        return (val !== undefined && val !== null && val !== 0) ? val / 1000 : null;
+        return (val !== undefined && val !== null) ? val : 0;
     });
     const trustData = data.map(d => {
         const val = d['投信買賣超'];
-        return (val !== undefined && val !== null && val !== 0) ? val / 1000 : null;
+        return (val !== undefined && val !== null) ? val : 0;
     });
     const dealerData = data.map(d => {
         const val = d['自營商買賣超'];
-        return (val !== undefined && val !== null && val !== 0) ? val / 1000 : null;
+        return (val !== undefined && val !== null) ? val : 0;
     });
     
-    const hasChipData = foreignData.some(v => v !== null) || trustData.some(v => v !== null) || dealerData.some(v => v !== null);
+    console.log('外資資料範例:', foreignData.slice(0, 5));
+    console.log('投信資料範例:', trustData.slice(0, 5));
+    console.log('自營商資料範例:', dealerData.slice(0, 5));
+    
+    const hasChipData = foreignData.some(v => v !== 0) || trustData.some(v => v !== 0) || dealerData.some(v => v !== 0);
+    console.log('是否有籌碼資料:', hasChipData);
     if (!hasChipData) {
         console.warn('無籌碼資料，請執行 fetch_chip_data.py 擷取籌碼資料');
     }
     
     series.push({
         name: '外資買賣超',
-        type: 'line',
+        type: 'bar',
+        stack: 'chip',
         data: foreignData,
         xAxisIndex: 2,
         yAxisIndex: 2,
-        showSymbol: false,
-        lineStyle: { width: 2, color: 'rgba(255, 99, 132, 0.8)' }
+        itemStyle: { color: '#2196F3' }
     });
     
     series.push({
         name: '投信買賣超',
-        type: 'line',
+        type: 'bar',
+        stack: 'chip',
         data: trustData,
         xAxisIndex: 2,
         yAxisIndex: 2,
-        showSymbol: false,
-        lineStyle: { width: 2, color: 'rgba(54, 162, 235, 0.8)' }
+        itemStyle: { color: '#f44336' }
     });
     
     series.push({
         name: '自營商買賣超',
-        type: 'line',
+        type: 'bar',
+        stack: 'chip',
         data: dealerData,
         xAxisIndex: 2,
         yAxisIndex: 2,
-        showSymbol: false,
-        lineStyle: { width: 2, color: 'rgba(75, 192, 192, 0.8)' }
+        itemStyle: { color: '#ff9800' }
     });
     
     const legendData = ['K線', 'MA5', 'MA10', 'MA20', '成交量', '外資買賣超', '投信買賣超', '自營商買賣超'];
@@ -704,7 +715,6 @@ function saveBuyStrategy() {
     saved.push({ name, strategies: buyStrategies.map(s => ({ indicators: s.indicators })) });
     localStorage.setItem('savedBuyStrategies', JSON.stringify(saved));
     loadSavedBuyStrategiesList();
-    alert('買進策略已儲存!');
 }
 
 function saveSellStrategy() {
@@ -718,7 +728,6 @@ function saveSellStrategy() {
     saved.push({ name, strategies: sellStrategies.map(s => ({ indicators: s.indicators })) });
     localStorage.setItem('savedSellStrategies', JSON.stringify(saved));
     loadSavedSellStrategiesList();
-    alert('賣出策略已儲存!');
 }
 
 function loadSavedBuyStrategiesList() {
@@ -759,7 +768,6 @@ function loadSavedBuyStrategy() {
         buyStrategies.push({ id, indicators: s.indicators, confirmed: false });
     });
     renderBuyStrategies();
-    alert('買進策略已載入!');
 }
 
 function loadSavedSellStrategy() {
@@ -776,7 +784,6 @@ function loadSavedSellStrategy() {
         sellStrategies.push({ id, indicators: s.indicators, confirmed: false });
     });
     renderSellStrategies();
-    alert('賣出策略已載入!');
 }
 
 function deleteBuyStrategy() {
@@ -850,6 +857,81 @@ function loadStocksBySector() {
         .catch(err => {
             console.error('載入股票列表失敗:', err);
         });
+}
+
+function testAI() {
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center;';
+    modal.innerHTML = `<div style="background: white; padding: 20px; border-radius: 8px; width: 500px; max-height: 80%; overflow-y: auto; position: relative;">
+        <button onclick="this.parentElement.parentElement.remove()" style="position: absolute; top: 10px; right: 10px; background: #f44336; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-size: 16px; z-index: 10;">✕</button>
+        <h2>🤖 AI 連線測試</h2>
+        <div id="testAIContent" style="padding: 20px; text-align: center;">測試中...</div>
+    </div>`;
+    document.body.appendChild(modal);
+    
+    fetch('/api/test-ai')
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('testAIContent').innerHTML = `
+                    <div style="text-align: left;">
+                        <p style="color: green; font-weight: bold;">✅ 連線成功！</p>
+                        <p><strong>Region:</strong> ${data.region}</p>
+                        <p><strong>AI 回應:</strong></p>
+                        <div style="background: #f5f5f5; padding: 10px; border-radius: 4px; margin-top: 10px;">${data.message}</div>
+                    </div>
+                `;
+            } else {
+                document.getElementById('testAIContent').innerHTML = `<p style="color: red;">❌ 連線失敗: ${data.error}</p>`;
+            }
+        })
+        .catch(err => {
+            document.getElementById('testAIContent').innerHTML = `<p style="color: red;">❌ 請求失敗: ${err.message}</p>`;
+        });
+}
+
+function analyzeWithAI(resultIdx) {
+    const result = allBacktestResults[resultIdx];
+    const code = document.getElementById('stockSelect').value;
+    const stockText = document.getElementById('stockSelect').selectedOptions[0].text;
+    const stockName = stockText.split(' ')[1] || stockText;
+    const level1 = document.getElementById('level1Select').value;
+    const level2 = document.getElementById('level2Select').value;
+    const sector = level2 ? `${level1} > ${level2}` : level1;
+    
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center;';
+    modal.innerHTML = `<div style="background: white; padding: 20px; border-radius: 8px; width: 80%; max-width: 900px; max-height: 80%; overflow-y: auto; position: relative;">
+        <button onclick="this.parentElement.parentElement.remove()" style="position: absolute; top: 10px; right: 10px; background: #f44336; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-size: 16px; z-index: 10;">✕</button>
+        <h2>🤖 AI 分析結果</h2>
+        <div id="aiAnalysisContent" style="padding: 20px; text-align: center;">分析中，請稍候...</div>
+    </div>`;
+    document.body.appendChild(modal);
+    
+    fetch('/api/ai-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            stock_code: code,
+            stock_name: stockName,
+            sector: sector,
+            buy_strategies: buyStrategies.map(s => ({ indicators: s.indicators })),
+            sell_strategies: sellStrategies.map(s => ({ indicators: s.indicators })),
+            backtest_result: result,
+            stock_data: currentData
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.error) {
+            document.getElementById('aiAnalysisContent').innerHTML = `<p style="color: red;">${data.error}</p>`;
+        } else {
+            document.getElementById('aiAnalysisContent').innerHTML = `<div style="text-align: left; white-space: pre-wrap; line-height: 1.6;">${data.analysis}</div>`;
+        }
+    })
+    .catch(err => {
+        document.getElementById('aiAnalysisContent').innerHTML = `<p style="color: red;">分析失敗: ${err.message}</p>`;
+    });
 }
 
 document.addEventListener('DOMContentLoaded', function() {

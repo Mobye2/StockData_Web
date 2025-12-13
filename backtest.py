@@ -511,11 +511,13 @@ class BacktestStrategy:
                         break
             
             if should_buy and self.position == 0 and i < len(self.df) - 1:
-                # 隔天開盤價買入
+                # 隔天開盤價買入，使用固定金額
                 next_price = self.df.iloc[i+1]['開盤價']
                 next_date = self.df.iloc[i+1]['日期']
-                shares = int(self.capital / next_price)
-                if shares > 0:
+                # 使用固定金額購買（預設為initial_capital）
+                buy_amount = self.initial_capital
+                shares = int(buy_amount / next_price)
+                if shares > 0 and self.capital >= buy_amount:
                     trade_counter += 1
                     cost = shares * next_price
                     self.capital -= cost
