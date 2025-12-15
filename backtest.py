@@ -216,27 +216,27 @@ class BacktestStrategy:
                                 break
             
             if all_buy and self.position == 0:
-                shares = int(self.capital / price)
-                if shares > 0:
-                    cost = shares * price
-                    self.capital -= cost
-                    self.position += shares
-                    
-                    indicators = {}
-                    for strategy_config in buy_strategies:
-                        if strategy_config['type'] == 'ma_slope':
-                            slope_val = round(self.df.iloc[i]['MA20_slope'], 2) if not pd.isna(self.df.iloc[i]['MA20_slope']) else 0
-                            threshold = strategy_config['params'].get('slope_threshold', 0.2)
-                            indicators['MA20斜率'] = f"{slope_val}(閾:{threshold})"
-                        elif strategy_config['type'] == 'rsi':
-                            rsi_val = round(self.df.iloc[i]['RSI'], 2) if not pd.isna(self.df.iloc[i]['RSI']) else 0
-                            indicators['RSI'] = rsi_val
-                        elif strategy_config['type'] == 'high_volume':
-                            vol_ratio = self.df.iloc[i]['成交量'] / self.df.iloc[i]['Volume_MA'] if not pd.isna(self.df.iloc[i]['Volume_MA']) and self.df.iloc[i]['Volume_MA'] > 0 else 0
-                            indicators['量倍數'] = round(vol_ratio, 2)
-                    
-                    self.buy_records.append({'日期': date, '價格': price, '數量': shares, '金額': cost})
-                    self.trades.append({'日期': date, '類型': '買入', '價格': price, '數量': shares, '金額': cost, '餘額': self.capital, '指標': indicators})
+                # 固定買入1000股，不考慮資金限制
+                shares = 1000
+                cost = shares * price
+                self.capital -= cost  # 允許資金變負數
+                self.position += shares
+                
+                indicators = {}
+                for strategy_config in buy_strategies:
+                    if strategy_config['type'] == 'ma_slope':
+                        slope_val = round(self.df.iloc[i]['MA20_slope'], 2) if not pd.isna(self.df.iloc[i]['MA20_slope']) else 0
+                        threshold = strategy_config['params'].get('slope_threshold', 0.2)
+                        indicators['MA20斜率'] = f"{slope_val}(閾:{threshold})"
+                    elif strategy_config['type'] == 'rsi':
+                        rsi_val = round(self.df.iloc[i]['RSI'], 2) if not pd.isna(self.df.iloc[i]['RSI']) else 0
+                        indicators['RSI'] = rsi_val
+                    elif strategy_config['type'] == 'high_volume':
+                        vol_ratio = self.df.iloc[i]['成交量'] / self.df.iloc[i]['Volume_MA'] if not pd.isna(self.df.iloc[i]['Volume_MA']) and self.df.iloc[i]['Volume_MA'] > 0 else 0
+                        indicators['量倍數'] = round(vol_ratio, 2)
+                
+                self.buy_records.append({'日期': date, '價格': price, '數量': shares, '金額': cost})
+                self.trades.append({'日期': date, '類型': '買入', '價格': price, '數量': shares, '金額': cost, '餘額': self.capital, '指標': indicators})
             
             elif (all_sell or profit_target_sell) and self.position > 0:
                 revenue = self.position * price
@@ -536,20 +536,18 @@ class BacktestStrategy:
                         break
             
             if should_buy and self.position == 0 and i < len(self.df) - 1:
-                # 隔天開盤價買入，使用固定金額
+                # 隔天開盤價買入，不受資金限制
                 next_price = self.df.iloc[i+1]['開盤價']
                 next_date = self.df.iloc[i+1]['日期']
-                # 使用固定金額購買（預設為initial_capital）
-                buy_amount = self.initial_capital
-                shares = int(buy_amount / next_price)
-                if shares > 0 and self.capital >= buy_amount:
-                    trade_counter += 1
-                    cost = shares * next_price
-                    self.capital -= cost
-                    self.position += shares
-                    triggered_strategies = [idx+1 for idx, signals in enumerate(buy_strategy_signals) if signals[i]]
-                    self.buy_records.append({'日期': next_date, '價格': next_price, '數量': shares, '金額': cost})
-                    self.trades.append({'日期': next_date, '類型': '買入', '價格': next_price, '數量': shares, '金額': cost, '餘額': self.capital, '策略編號': triggered_strategies, '交易編號': trade_counter})
+                # 固定買入1000股，不考慮資金限制
+                shares = 1000
+                trade_counter += 1
+                cost = shares * next_price
+                self.capital -= cost  # 允許資金變負數
+                self.position += shares
+                triggered_strategies = [idx+1 for idx, signals in enumerate(buy_strategy_signals) if signals[i]]
+                self.buy_records.append({'日期': next_date, '價格': next_price, '數量': shares, '金額': cost})
+                self.trades.append({'日期': next_date, '類型': '買入', '價格': next_price, '數量': shares, '金額': cost, '餘額': self.capital, '策略編號': triggered_strategies, '交易編號': trade_counter})
             
             elif (should_sell or profit_target_sell) and self.position > 0 and i < len(self.df) - 1:
                 # 隔天開盤價賣出

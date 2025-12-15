@@ -98,8 +98,27 @@ def add_chip_columns(stock_id):
     conn.commit()
     conn.close()
 
+def create_empty_record(stock_id, date):
+    """為指定日期創建空的K線記錄"""
+    conn = sqlite3.connect('stock.db')
+    cursor = conn.cursor()
+    table_name = f'stock_{stock_id}'
+    
+    try:
+        cursor.execute(f'''
+            INSERT INTO {table_name} (日期, 開盤價, 最高價, 最低價, 收盤價, 成交量, 成交金額, 漲跌, 成交筆數)
+            VALUES (?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+        ''', (date,))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f'    ⚠️  創建空記錄失敗 {date}: {e}', flush=True)
+        return False
+    finally:
+        conn.close()
+
 def save_chip_data(stock_id, margin_df, institutional_df, foreign_df):
-    """更新 stock_XXXX 表的籌碼欄位"""
+    """更新 stock_XXXX 表的籌碼欄位，如果日期不存在則創建新記錄"""
     add_chip_columns(stock_id)
     
     conn = sqlite3.connect('stock.db')
@@ -107,7 +126,33 @@ def save_chip_data(stock_id, margin_df, institutional_df, foreign_df):
     table_name = f'stock_{stock_id}'
     
     updated = 0
+    created = 0
     
+    # 收集所有需要處理的日期
+    all_dates = set()
+    
+    if margin_df is not None and len(margin_df) > 0:
+        all_dates.update(margin_df['date'].tolist())
+    
+    if institutional_df is not None and len(institutional_df) > 0:
+        all_dates.update(institutional_df['date'].unique().tolist())
+    
+    if foreign_df is not None and len(foreign_df) > 0:
+        all_dates.update(foreign_df['date'].tolist())
+    
+    # 檢查並創建缺失的日期記錄
+    for date in all_dates:
+        cursor.execute(f'SELECT COUNT(*) FROM {table_name} WHERE 日期 = ?', (date,))
+        if cursor.fetchone()[0] == 0:
+            cursor.execute(f'''
+                INSERT INTO {table_name} (日期, 開盤價, 最高價, 最低價, 收盤價, 成交量, 成交金額, 漲跌, 成交筆數)
+                VALUES (?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+            ''', (date,))
+            created += 1
+    
+    conn.commit()
+    
+    # 更新融資融券資料
     if margin_df is not None and len(margin_df) > 0:
         for _, row in margin_df.iterrows():
             cursor.execute(f'''
@@ -118,6 +163,7 @@ def save_chip_data(stock_id, margin_df, institutional_df, foreign_df):
                   row.get('ShortSaleBuy', 0), row.get('ShortSaleSell', 0), row.get('date')))
             updated += cursor.rowcount
     
+    # 更新三大法人資料
     if institutional_df is not None and len(institutional_df) > 0:
         for date in institutional_df['date'].unique():
             date_data = institutional_df[institutional_df['date'] == date]
@@ -134,7 +180,9 @@ def save_chip_data(stock_id, margin_df, institutional_df, foreign_df):
                 外資買賣超 = ?, 投信買賣超 = ?, 自營商買賣超 = ?
                 WHERE 日期 = ?
             ''', (foreign_net, trust_net, dealer_net, date))
+            updated += cursor.rowcount
     
+    # 更新外資持股比資料
     if foreign_df is not None and len(foreign_df) > 0:
         for _, row in foreign_df.iterrows():
             value = row.get('ForeignInvestmentRemainRatio')
@@ -143,9 +191,14 @@ def save_chip_data(stock_id, margin_df, institutional_df, foreign_df):
                     UPDATE {table_name} SET 外資持股比 = ?
                     WHERE 日期 = ?
                 ''', (value, row.get('date')))
+                updated += cursor.rowcount
     
     conn.commit()
     conn.close()
+    
+    if created > 0:
+        print(f'    ➕ 新建 {created} 筆空記錄', flush=True)
+    
     return updated
 
 if __name__ == '__main__':

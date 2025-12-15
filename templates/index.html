@@ -119,7 +119,7 @@
     function loadStock(code) {
         const stock = stockList.find(s => s.code === code);
         if (!stock) return;
-
+        
         fetch(`/api/data/${code}`)
             .then(res => res.json())
             .then(data => {
@@ -128,68 +128,167 @@
                     return;
                 }
                 
-                const dates = data.map(d => d.日期);
-                const kdata = data.map(d => [d.開盤價, d.收盤價, d.最低價, d.最高價]);
-                const volumes = data.map(d => d.成交量);
-                
                 const latest = data[data.length - 1];
+                const prev = data.length > 1 ? data[data.length - 2] : latest;
+                const change = latest.收盤價 - prev.收盤價;
+                const changePercent = (change / prev.收盤價 * 100);
+                
                 document.getElementById('stats').innerHTML = `
                     <div class="stat-item"><strong>股票:</strong> ${stock.code} ${stock.name}</div>
                     <div class="stat-item"><strong>最新日期:</strong> ${latest.日期}</div>
                     <div class="stat-item"><strong>收盤價:</strong> ${latest.收盤價}</div>
-                    <div class="stat-item"><strong>漲跌:</strong> <span style="color:${latest.漲跌>=0?'red':'green'}">${latest.漲跌>0?'+':''}${latest.漲跌}</span></div>
+                    <div class="stat-item"><strong>漲跌:</strong> <span style="color:${change>=0?'red':'green'}">${change>0?'+':''}${change.toFixed(2)} (${changePercent>0?'+':''}${changePercent.toFixed(2)}%)</span></div>
                     <div class="stat-item"><strong>成交量:</strong> ${(latest.成交量/1000000).toFixed(2)}M</div>
+                    <div class="stat-item"><strong>最高:</strong> ${latest.最高價}</div>
+                    <div class="stat-item"><strong>最低:</strong> ${latest.最低價}</div>
                 `;
 
-                if (!chart) {
-                    chart = echarts.init(document.getElementById('chart'));
-                }
-                
-                chart.setOption({
-                    title: { text: `${stock.name} (${stock.code}) 日K線圖`, left: 'center' },
-                    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
-                    legend: { data: ['K線', '成交量'], top: 30 },
-                    grid: [
-                        { left: '10%', right: '10%', top: '15%', height: '50%' },
-                        { left: '10%', right: '10%', top: '70%', height: '15%' }
-                    ],
-                    xAxis: [
-                        { type: 'category', data: dates, gridIndex: 0 },
-                        { type: 'category', data: dates, gridIndex: 1 }
-                    ],
-                    yAxis: [
-                        { scale: true, gridIndex: 0 },
-                        { scale: true, gridIndex: 1 }
-                    ],
-                    dataZoom: [
-                        { type: 'inside', xAxisIndex: [0, 1], start: 80, end: 100 },
-                        { show: true, xAxisIndex: [0, 1], type: 'slider', top: '90%', start: 80, end: 100 }
-                    ],
-                    series: [
-                        {
-                            name: 'K線',
-                            type: 'candlestick',
-                            data: kdata,
-                            itemStyle: {
-                                color: '#ef5350',
-                                color0: '#26a69a',
-                                borderColor: '#ef5350',
-                                borderColor0: '#26a69a'
-                            },
-                            xAxisIndex: 0,
-                            yAxisIndex: 0
-                        },
-                        {
-                            name: '成交量',
-                            type: 'bar',
-                            data: volumes,
-                            xAxisIndex: 1,
-                            yAxisIndex: 1,
-                            itemStyle: { color: '#7cb5ec' }
-                        }
-                    ]
-                });
+                drawChart(data, stock);
             });
+    }
+
+    function drawChart(data, stock) {
+        const dates = data.map(d => d.日期);
+        const kdata = data.map(d => [d.開盤價, d.收盤價, d.最低價, d.最高價]);
+        const volumes = data.map(d => d.成交量);
+        
+        // 移動平均線
+        const ma5Data = data.map(d => d.MA5 || null);
+        const ma10Data = data.map(d => d.MA10 || null);
+        const ma20Data = data.map(d => d.MA20 || null);
+        
+        // 三大法人資料
+        const foreignData = data.map(d => d.外資買賣超 || 0);
+        const trustData = data.map(d => d.投信買賣超 || 0);
+        const dealerData = data.map(d => d.自營商買賣超 || 0);
+
+        if (!chart) {
+            chart = echarts.init(document.getElementById('chart'));
+        }
+        
+        chart.setOption({
+            title: { text: `${stock.name} (${stock.code}) 日K線圖`, left: 'center' },
+            tooltip: { 
+                trigger: 'axis', 
+                axisPointer: { type: 'cross' },
+                formatter: function(params) {
+                    let result = `日期: ${params[0].axisValue}<br/>`;
+                    params.forEach(param => {
+                        if (param.seriesName === 'K線') {
+                            const [open, close, low, high] = param.data;
+                            result += `開盤: ${open}<br/>收盤: ${close}<br/>最高: ${high}<br/>最低: ${low}<br/>`;
+                        } else if (param.seriesName.includes('MA')) {
+                            result += `${param.seriesName}: ${param.data ? param.data.toFixed(2) : '--'}<br/>`;
+                        } else if (param.seriesName === '成交量') {
+                            result += `成交量: ${(param.data/1000000).toFixed(2)}M<br/>`;
+                        } else if (param.seriesName.includes('買賣超')) {
+                            result += `${param.seriesName}: ${(param.data/1000).toFixed(0)}K張<br/>`;
+                        }
+                    });
+                    return result;
+                }
+            },
+            legend: { data: ['K線', 'MA5', 'MA10', 'MA20', '成交量', '外資買賣超', '投信買賣超', '自營商買賣超'], top: 30 },
+            grid: [
+                { left: '8%', right: '3%', top: '10%', height: '45%' },
+                { left: '8%', right: '3%', top: '60%', height: '12%' },
+                { left: '8%', right: '3%', top: '77%', height: '15%' }
+            ],
+            xAxis: [
+                { type: 'category', data: dates, gridIndex: 0 },
+                { type: 'category', data: dates, gridIndex: 1 },
+                { type: 'category', data: dates, gridIndex: 2 }
+            ],
+            yAxis: [
+                { scale: true, gridIndex: 0, name: '價格' },
+                { scale: true, gridIndex: 1, name: '成交量' },
+                { scale: true, gridIndex: 2, name: '三大法人(張)' }
+            ],
+            dataZoom: [
+                { type: 'inside', xAxisIndex: [0, 1, 2], start: 70, end: 100 },
+                { show: true, xAxisIndex: [0, 1, 2], type: 'slider', bottom: '2%', start: 70, end: 100 }
+            ],
+            series: [
+                {
+                    name: 'K線',
+                    type: 'candlestick',
+                    data: kdata,
+                    itemStyle: {
+                        color: '#ef5350',
+                        color0: '#26a69a',
+                        borderColor: '#ef5350',
+                        borderColor0: '#26a69a'
+                    },
+                    xAxisIndex: 0,
+                    yAxisIndex: 0
+                },
+                {
+                    name: 'MA5',
+                    type: 'line',
+                    data: ma5Data,
+                    smooth: true,
+                    showSymbol: false,
+                    lineStyle: { width: 1, color: 'rgba(255, 193, 7, 0.6)' },
+                    xAxisIndex: 0,
+                    yAxisIndex: 0
+                },
+                {
+                    name: 'MA10',
+                    type: 'line',
+                    data: ma10Data,
+                    smooth: true,
+                    showSymbol: false,
+                    lineStyle: { width: 1, color: 'rgba(33, 150, 243, 0.6)' },
+                    xAxisIndex: 0,
+                    yAxisIndex: 0
+                },
+                {
+                    name: 'MA20',
+                    type: 'line',
+                    data: ma20Data,
+                    smooth: true,
+                    showSymbol: false,
+                    lineStyle: { width: 1, color: 'rgba(156, 39, 176, 0.6)' },
+                    xAxisIndex: 0,
+                    yAxisIndex: 0
+                },
+                {
+                    name: '成交量',
+                    type: 'bar',
+                    data: volumes,
+                    xAxisIndex: 1,
+                    yAxisIndex: 1,
+                    itemStyle: { color: 'rgba(100, 150, 200, 0.5)' }
+                },
+                {
+                    name: '外資買賣超',
+                    type: 'bar',
+                    stack: 'chip',
+                    data: foreignData,
+                    xAxisIndex: 2,
+                    yAxisIndex: 2,
+                    itemStyle: { color: '#2196F3' }
+                },
+                {
+                    name: '投信買賣超',
+                    type: 'bar',
+                    stack: 'chip',
+                    data: trustData,
+                    xAxisIndex: 2,
+                    yAxisIndex: 2,
+                    itemStyle: { color: '#f44336' }
+                },
+                {
+                    name: '自營商買賣超',
+                    type: 'bar',
+                    stack: 'chip',
+                    data: dealerData,
+                    xAxisIndex: 2,
+                    yAxisIndex: 2,
+                    itemStyle: { color: '#ff9800' }
+                }
+            ]
+        });
     }
 
     document.getElementById('searchInput').addEventListener('keypress', function(e) {
