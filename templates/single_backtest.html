@@ -162,7 +162,7 @@ const indicatorConfigs = {
     high_volume: { name: '爆量', category: '技術類', params: { volume_multiplier: 2.0 }, units: { volume_multiplier: '倍' } },
     ma_slope_up: { name: 'MA向上', category: '技術類', params: { window: 20, threshold: 10, hold_days: 3 }, units: { window: '日', threshold: '%', hold_days: '日' } },
     ma_slope_down: { name: 'MA向下', category: '技術類', params: { window: 20, threshold: -10, hold_days: 3 }, units: { window: '日', threshold: '%', hold_days: '日' } },
-    w_bottom: { name: 'W底型態', category: '型態類', params: { lookback: 40, tolerance: 0.05, neckline_diff: 0.05 }, units: { lookback: '日', tolerance: '', neckline_diff: '' } },
+    w_bottom: { name: 'W底型態', category: '型態類', params: { lookback: 60, bottom_diff: 0.07, w_height: 0.10, breakout_pct: 0.01 }, units: { lookback: '日', bottom_diff: '', w_height: '', breakout_pct: '' } },
     take_profit: { name: '停利', category: '風控類', params: { profit_pct: 10 }, units: { profit_pct: '%' } },
     stop_loss: { name: '停損', category: '風控類', params: { loss_pct: -5 }, units: { loss_pct: '%' } },
     foreign_consecutive_buy: { name: '外資連續買超', category: '籌碼類', params: { days: 3 }, units: { days: '日' } },

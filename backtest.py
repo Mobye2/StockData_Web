@@ -415,8 +415,9 @@ class BacktestStrategy:
                 
                 elif ind_type == 'w_bottom':
                     lookback = params.get('lookback', 40)
-                    tolerance = params.get('tolerance', 0.05)
-                    neckline_diff = params.get('neckline_diff', 0.05)
+                    bottom_diff = params.get('bottom_diff', 0.07)
+                    w_height = params.get('w_height', 0.10)
+                    breakout_pct = params.get('breakout_pct', 0.01)
                     sig = []
                     for i in range(len(self.df)):
                         if i < lookback:
@@ -457,7 +458,7 @@ class BacktestStrategy:
                                 right_low = lows[right_idx]
                                 
                                 # 檢查兩個低點是否接近
-                                if abs(left_low - right_low) / left_low <= tolerance:
+                                if abs(left_low - right_low) / left_low <= bottom_diff:
                                     # 找左底之後、右底之前的高點（第一次反彈）
                                     peak1_candidates = [idx for idx in max_idx if left_idx < idx < right_idx]
                                     # 找右底之後的高點（第二次反彈）
@@ -472,15 +473,22 @@ class BacktestStrategy:
                                         # 頸線 = 兩個反彈高點的平均
                                         neckline = (peak1_high + peak2_high) / 2
                                         
-                                        # 檢查左底之前是否有從頸線附近下跌
-                                        if left_idx >= 3:
-                                            before_left = highs[max(0, left_idx-10):left_idx]
-                                            if len(before_left) > 0 and max(before_left) >= neckline * 0.95:
-                                                # 頸線必須明顯高於兩個低點（使用neckline_diff參數）
-                                                if neckline > max(left_low, right_low) * (1 + neckline_diff):
-                                                    # 當前價格突破頸線
-                                                    if closes[-1] > neckline * 1.01:
-                                                        sig.append(True)
+                                        # 檢查當前位置是否在第二次反彈之後（W底形成後才能突破）
+                                        current_idx_in_window = len(window_data) - 1
+                                        if current_idx_in_window > peak2_idx:
+                                            # 檢查左底之前是否有從頸線之上下跌（使用left_idx作為回溯範圍）
+                                            lookback_window = min(left_idx, lookback // 2)  # 使用lookback的一半或左底位置，取較小者
+                                            if lookback_window >= 3:
+                                                before_left = highs[max(0, left_idx-lookback_window):left_idx]
+                                                if len(before_left) > 0 and max(before_left) > neckline:
+                                                    # 頸線必須明顯高於兩個低點（使用w_height參數）
+                                                    if neckline > max(left_low, right_low) * (1 + w_height):
+                                                        # 當前價格突破頸線（使用breakout_pct參數）
+                                                        if closes[-1] > neckline * (1 + breakout_pct):
+                                                            print(f"[W_BOTTOM] {self.df.iloc[i]['日期']} 觸發 (收盤={closes[-1]:.2f}, 頸線={neckline:.2f})")
+                                                            sig.append(True)
+                                                        else:
+                                                            sig.append(False)
                                                     else:
                                                         sig.append(False)
                                                 else:
