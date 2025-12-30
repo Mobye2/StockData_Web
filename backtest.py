@@ -412,6 +412,92 @@ class BacktestStrategy:
                         else:
                             sig.append(False)
                     indicator_signals.append(sig)
+                
+                elif ind_type == 'w_bottom':
+                    lookback = params.get('lookback', 40)
+                    tolerance = params.get('tolerance', 0.05)
+                    neckline_diff = params.get('neckline_diff', 0.05)
+                    sig = []
+                    for i in range(len(self.df)):
+                        if i < lookback:
+                            sig.append(False)
+                            continue
+                        
+                        window_data = self.df.iloc[i-lookback:i+1]
+                        lows = window_data['最低價'].values
+                        highs = window_data['最高價'].values
+                        closes = window_data['收盤價'].values
+                        
+                        # 找局部低點
+                        min_idx = []
+                        for j in range(2, len(lows)-2):
+                            if (lows[j] <= lows[j-1] and lows[j] <= lows[j-2] and 
+                                lows[j] <= lows[j+1] and lows[j] <= lows[j+2]):
+                                min_idx.append(j)
+                        
+                        # 找局部高點
+                        max_idx = []
+                        for j in range(2, len(highs)-2):
+                            if (highs[j] >= highs[j-1] and highs[j] >= highs[j-2] and 
+                                highs[j] >= highs[j+1] and highs[j] >= highs[j+2]):
+                                max_idx.append(j)
+                        
+                        # 需要至少兩個低點和兩個高點
+                        if len(min_idx) >= 2 and len(max_idx) >= 2:
+                            # 找最後兩個間隔足夠的低點
+                            valid_pair = None
+                            for k in range(len(min_idx)-1, 0, -1):
+                                if min_idx[k] - min_idx[k-1] >= 5:
+                                    valid_pair = (min_idx[k-1], min_idx[k])
+                                    break
+                            
+                            if valid_pair:
+                                left_idx, right_idx = valid_pair
+                                left_low = lows[left_idx]
+                                right_low = lows[right_idx]
+                                
+                                # 檢查兩個低點是否接近
+                                if abs(left_low - right_low) / left_low <= tolerance:
+                                    # 找左底之後、右底之前的高點（第一次反彈）
+                                    peak1_candidates = [idx for idx in max_idx if left_idx < idx < right_idx]
+                                    # 找右底之後的高點（第二次反彈）
+                                    peak2_candidates = [idx for idx in max_idx if idx > right_idx]
+                                    
+                                    if peak1_candidates and peak2_candidates:
+                                        peak1_idx = peak1_candidates[0]  # 第一個反彈高點
+                                        peak2_idx = peak2_candidates[0]  # 第二個反彈高點
+                                        peak1_high = highs[peak1_idx]
+                                        peak2_high = highs[peak2_idx]
+                                        
+                                        # 頸線 = 兩個反彈高點的平均
+                                        neckline = (peak1_high + peak2_high) / 2
+                                        
+                                        # 檢查左底之前是否有從頸線附近下跌
+                                        if left_idx >= 3:
+                                            before_left = highs[max(0, left_idx-10):left_idx]
+                                            if len(before_left) > 0 and max(before_left) >= neckline * 0.95:
+                                                # 頸線必須明顯高於兩個低點（使用neckline_diff參數）
+                                                if neckline > max(left_low, right_low) * (1 + neckline_diff):
+                                                    # 當前價格突破頸線
+                                                    if closes[-1] > neckline * 1.01:
+                                                        sig.append(True)
+                                                    else:
+                                                        sig.append(False)
+                                                else:
+                                                    sig.append(False)
+                                            else:
+                                                sig.append(False)
+                                        else:
+                                            sig.append(False)
+                                    else:
+                                        sig.append(False)
+                                else:
+                                    sig.append(False)
+                            else:
+                                sig.append(False)
+                        else:
+                            sig.append(False)
+                    indicator_signals.append(sig)
             
             # 策略內所有指標都要達標（AND）
             if indicator_signals:
