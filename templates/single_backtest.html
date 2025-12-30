@@ -137,21 +137,21 @@ function editSellStrategy(id) {
 }
 
 const indicatorConfigs = {
-    ma_crossover: { name: 'MA均線交叉', category: '技術類', params: { short_window: 5, long_window: 20 } },
-    rsi: { name: 'RSI指標', category: '技術類', params: { period: 14, buy_threshold: 30, sell_threshold: 70 } },
-    high_volume: { name: '爆量', category: '技術類', params: { volume_multiplier: 2.0 } },
-    ma_slope_up: { name: 'MA向上', category: '技術類', params: { window: 20, threshold: 10, hold_days: 3 } },
-    ma_slope_down: { name: 'MA向下', category: '技術類', params: { window: 20, threshold: -10, hold_days: 3 } },
-    take_profit: { name: '停利', category: '風控類', params: { profit_pct: 10 } },
-    stop_loss: { name: '停損', category: '風控類', params: { loss_pct: -5 } },
-    foreign_consecutive_buy: { name: '外資連續買超', category: '籌碼類', params: { days: 3 } },
-    trust_consecutive_buy: { name: '投信連續買超', category: '籌碼類', params: { days: 3 } },
-    dealer_consecutive_buy: { name: '自營商連續買超', category: '籌碼類', params: { days: 3 } },
-    foreign_consecutive_sell: { name: '外資連續賣超', category: '籌碼類', params: { days: 3 } },
-    trust_consecutive_sell: { name: '投信連續賣超', category: '籌碼類', params: { days: 3 } },
-    foreign_holding_high: { name: '外資持股比高', category: '籌碼類', params: { threshold: 30 } },
-    foreign_holding_low: { name: '外資持股比低', category: '籌碼類', params: { threshold: 10 } },
-    trust_volume_ratio: { name: '投信買入占交易量比', category: '籌碼類', params: { days: 5, volume_ratio: 10 } }
+    ma_crossover: { name: 'MA均線交叉', category: '技術類', params: { short_window: 5, long_window: 20 }, units: { short_window: '日', long_window: '日' } },
+    rsi: { name: 'RSI指標', category: '技術類', params: { period: 14, buy_threshold: 30, sell_threshold: 70 }, units: { period: '日', buy_threshold: '', sell_threshold: '' } },
+    high_volume: { name: '爆量', category: '技術類', params: { volume_multiplier: 2.0 }, units: { volume_multiplier: '倍' } },
+    ma_slope_up: { name: 'MA向上', category: '技術類', params: { window: 20, threshold: 10, hold_days: 3 }, units: { window: '日', threshold: '%', hold_days: '日' } },
+    ma_slope_down: { name: 'MA向下', category: '技術類', params: { window: 20, threshold: -10, hold_days: 3 }, units: { window: '日', threshold: '%', hold_days: '日' } },
+    take_profit: { name: '停利', category: '風控類', params: { profit_pct: 10 }, units: { profit_pct: '%' } },
+    stop_loss: { name: '停損', category: '風控類', params: { loss_pct: -5 }, units: { loss_pct: '%' } },
+    foreign_consecutive_buy: { name: '外資連續買超', category: '籌碼類', params: { days: 3 }, units: { days: '日' } },
+    trust_consecutive_buy: { name: '投信連續買超', category: '籌碼類', params: { days: 3 }, units: { days: '日' } },
+    dealer_consecutive_buy: { name: '自營商連續買超', category: '籌碼類', params: { days: 3 }, units: { days: '日' } },
+    foreign_consecutive_sell: { name: '外資連續賣超', category: '籌碼類', params: { days: 3 }, units: { days: '日' } },
+    trust_consecutive_sell: { name: '投信連續賣超', category: '籌碼類', params: { days: 3 }, units: { days: '日' } },
+    foreign_holding_high: { name: '外資持股比高', category: '籌碼類', params: { threshold: 30 }, units: { threshold: '%' } },
+    foreign_holding_low: { name: '外資持股比低', category: '籌碼類', params: { threshold: 10 }, units: { threshold: '%' } },
+    trust_volume_ratio: { name: '投信買入占交易量比', category: '籌碼類', params: { days: 5, volume_ratio: 10 }, units: { days: '日', volume_ratio: '%' } }
 };
 
 function addBuyStrategy() {
@@ -268,13 +268,15 @@ function renderBuyStrategies() {
                             <button class="remove-btn" onclick="removeIndicatorFromBuy(${strategy.id}, ${idx})">✕</button>
                         </div>
                         <div style="margin-top: 8px;">
-                            ${Object.keys(ind.params).map(param => `
+                            ${Object.keys(ind.params).map(param => {
+                                const unit = indicatorConfigs[ind.type].units[param] || '';
+                                return `
                                 <label style="margin-right: 10px; font-size: 13px;">
-                                    ${param}: <input type="number" step="1" value="${ind.params[param]}" 
+                                    ${param}: <input type="number" step="0.1" value="${ind.params[param]}" 
                                         onchange="updateParam(${strategy.id}, ${idx}, '${param}', true)" 
-                                        style="width: 70px;">
+                                        style="width: 70px;"> ${unit}
                                 </label>
-                            `).join('')}
+                            `}).join('')}
                         </div>
                     </div>
                 `).join('')}
@@ -325,13 +327,15 @@ function renderSellStrategies() {
                             <button class="remove-btn" onclick="removeIndicatorFromSell(${strategy.id}, ${idx})">✕</button>
                         </div>
                         <div style="margin-top: 8px;">
-                            ${Object.keys(ind.params).map(param => `
+                            ${Object.keys(ind.params).map(param => {
+                                const unit = indicatorConfigs[ind.type].units[param] || '';
+                                return `
                                 <label style="margin-right: 10px; font-size: 13px;">
-                                    ${param}: <input type="number" step="1" value="${ind.params[param]}" 
+                                    ${param}: <input type="number" step="0.1" value="${ind.params[param]}" 
                                         onchange="updateParam(${strategy.id}, ${idx}, '${param}', false)" 
-                                        style="width: 70px;">
+                                        style="width: 70px;"> ${unit}
                                 </label>
-                            `).join('')}
+                            `}).join('')}
                         </div>
                     </div>
                 `).join('')}
