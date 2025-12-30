@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  web-app:
+    build:
+      context: ./main_app
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - MCP_SERVICE_URL=http://mcp-service:8000
+    volumes:
+      - ./stock.db:/app/stock.db
+      - ./.env:/app/.env
+    depends_on:
+      - mcp-service
+
+  mcp-service:
+    build:
+      context: ./mcp_service
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - MCP_ENV=production
+    volumes:
+      - ./stock.db:/app/stock.db
+      - ./.env:/app/.env
+
+networks:
+  default:
+    driver: bridge

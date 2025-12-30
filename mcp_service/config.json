@@ -1,0 +1,24 @@
+{
+  "name": "stock-analysis-mcp",
+  "version": "1.0.0",
+  "description": "台股分析 MCP 服務",
+  "server": {
+    "host": "localhost",
+    "port": 8000,
+    "debug": true
+  },
+  "database": {
+    "path": "../stock.db",
+    "timeout": 30
+  },
+  "ai": {
+    "provider": "bedrock",
+    "model": "claude-3-sonnet",
+    "max_tokens": 4000
+  },
+  "features": {
+    "stock_analysis": true,
+    "backtest_support": true,
+    "real_time_data": false
+  }
+}

@@ -11,7 +11,8 @@ flask = "*"
 pandas = "*"
 finmind = "*"
 tqdm = "*"
-dotenv = "*"
+python-dotenv = "*"
+mcp = "*"
 
 [dev-packages]
 

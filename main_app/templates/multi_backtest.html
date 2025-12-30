@@ -4,6 +4,7 @@
 
 {% block extra_style %}
 <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script src="{{ url_for('static', filename='js/indicators.js') }}"></script>
 {% endblock %}
 
 {% block content %}
@@ -72,23 +73,7 @@ let sellStrategies = [];
 let buyStrategyCounter = 0;
 let sellStrategyCounter = 0;
 
-const indicatorConfigs = {
-    ma_crossover: { name: 'MA均線交叉', category: '技術類', params: { short_window: 5, long_window: 20 } },
-    rsi: { name: 'RSI指標', category: '技術類', params: { period: 14, buy_threshold: 30, sell_threshold: 70 } },
-    high_volume: { name: '爆量', category: '技術類', params: { volume_multiplier: 2.0 } },
-    ma_slope_up: { name: 'MA向上', category: '技術類', params: { window: 20, threshold: 10, hold_days: 3 } },
-    ma_slope_down: { name: 'MA向下', category: '技術類', params: { window: 20, threshold: -10, hold_days: 3 } },
-    take_profit: { name: '停利', category: '風控類', params: { profit_pct: 10 } },
-    stop_loss: { name: '停損', category: '風控類', params: { loss_pct: -5 } },
-    foreign_consecutive_buy: { name: '外資連續買超', category: '籌碼類', params: { days: 3 } },
-    trust_consecutive_buy: { name: '投信連續買超', category: '籌碼類', params: { days: 3 } },
-    dealer_consecutive_buy: { name: '自營商連續買超', category: '籌碼類', params: { days: 3 } },
-    foreign_consecutive_sell: { name: '外資連續賣超', category: '籌碼類', params: { days: 3 } },
-    trust_consecutive_sell: { name: '投信連續賣超', category: '籌碼類', params: { days: 3 } },
-    foreign_holding_high: { name: '外資持股比高', category: '籌碼類', params: { threshold: 30 } },
-    foreign_holding_low: { name: '外資持股比低', category: '籌碼類', params: { threshold: 10 } },
-    trust_volume_ratio: { name: '投信買入占交易量比', category: '籌碼類', params: { days: 5, volume_ratio: 10 } }
-};
+
 
 // 載入策略列表
 function loadStrategiesList() {
@@ -744,7 +729,25 @@ function displayResults(results) {
     const winStocks = tradedStocks.filter(r => r.return_rate > 0).length;
     const loseStocks = tradedStocks.filter(r => r.return_rate < 0).length;
     const breakEvenStocks = tradedStocks.filter(r => r.return_rate === 0).length;
-    const winRate = tradedCount > 0 ? (winStocks / tradedCount * 100) : 0;
+    const stockWinRate = tradedCount > 0 ? (winStocks / tradedCount * 100) : 0;
+    
+    // 計算交易層面的勝率
+    let totalWinTrades = 0;
+    let totalLoseTrades = 0;
+    results.forEach(result => {
+        if (result.trades) {
+            const sellTrades = result.trades.filter(t => t.類型 === '賣出');
+            sellTrades.forEach(trade => {
+                if ((trade.獲利 || 0) > 0) {
+                    totalWinTrades++;
+                } else {
+                    totalLoseTrades++;
+                }
+            });
+        }
+    });
+    const totalCompletedTrades = totalWinTrades + totalLoseTrades;
+    const tradeWinRate = totalCompletedTrades > 0 ? (totalWinTrades / totalCompletedTrades * 100) : 0;
     
     const avgReturn = tradedCount > 0 ? tradedStocks.reduce((sum, r) => sum + r.return_rate, 0) / tradedCount : 0;
     const totalProfit = results.reduce((sum, r) => sum + r.profit, 0);
@@ -771,12 +774,16 @@ function displayResults(results) {
     html += `<tr><td style="padding: 8px; border: 1px solid #ddd; background: #fff;"><strong>無交易股票</strong></td><td style="padding: 8px; border: 1px solid #ddd; background: #fff; color: #999;">${noTradeCount} 支 (${(noTradeCount/totalStocks*100).toFixed(2)}%)</td>`;
     html += `<td style="padding: 8px; border: 1px solid #ddd; background: #fff;"><strong>總交易次數</strong></td><td style="padding: 8px; border: 1px solid #ddd; background: #fff;">${totalTrades} 次</td></tr>`;
     
-    html += `<tr><td style="padding: 8px; border: 1px solid #ddd; background: #fff;"><strong>獲利股票</strong></td><td style="padding: 8px; border: 1px solid #ddd; background: #fff; color: #f44336; font-weight: bold;">${winStocks} 支 (${winRate.toFixed(2)}%)</td>`;
-    html += `<td style="padding: 8px; border: 1px solid #ddd; background: #fff;"><strong>平均交易次數</strong></td><td style="padding: 8px; border: 1px solid #ddd; background: #fff;">${avgTrades.toFixed(2)} 次/股</td></tr>`;
+    html += `<tr><td style="padding: 8px; border: 1px solid #ddd; background: #fff;"><strong>獲利股票</strong></td><td style="padding: 8px; border: 1px solid #ddd; background: #fff; color: #f44336; font-weight: bold;">${winStocks} 支 (${stockWinRate.toFixed(2)}%)</td>`;
+    html += `<td style="padding: 8px; border: 1px solid #ddd; background: #fff;"><strong>獲利交易</strong></td><td style="padding: 8px; border: 1px solid #ddd; background: #fff; color: #f44336; font-weight: bold;">${totalWinTrades} 筆 (${tradeWinRate.toFixed(2)}%)</td></tr>`;
     
     html += `<tr><td style="padding: 8px; border: 1px solid #ddd; background: #fff;"><strong>虧損股票</strong></td><td style="padding: 8px; border: 1px solid #ddd; background: #fff; color: #4caf50; font-weight: bold;">${loseStocks} 支 (${tradedCount > 0 ? (loseStocks/tradedCount*100).toFixed(2) : 0}%)</td>`;
-    html += `<td style="padding: 8px; border: 1px solid #ddd; background: #fff;"><strong>平均個股勝率</strong></td><td style="padding: 8px; border: 1px solid #ddd; background: #fff;">${avgWinRate.toFixed(2)}%</td></tr>`;
+    html += `<td style="padding: 8px; border: 1px solid #ddd; background: #fff;"><strong>虧損交易</strong></td><td style="padding: 8px; border: 1px solid #ddd; background: #fff; color: #4caf50; font-weight: bold;">${totalLoseTrades} 筆 (${totalCompletedTrades > 0 ? (totalLoseTrades/totalCompletedTrades*100).toFixed(2) : 0}%)</td></tr>`;
     
+    html += `<tr><td style="padding: 8px; border: 1px solid #ddd; background: #fff;"><strong>平均交易次數</strong></td><td style="padding: 8px; border: 1px solid #ddd; background: #fff;">${avgTrades.toFixed(2)} 次/股</td>`;
+    html += `<td style="padding: 8px; border: 1px solid #ddd; background: #fff;"><strong>總交易勝率</strong></td><td style="padding: 8px; border: 1px solid #ddd; background: #fff; color: ${tradeWinRate >= 50 ? '#f44336' : '#4caf50'}; font-weight: bold; font-size: 16px;">${tradeWinRate.toFixed(2)}%</td></tr>`;
+    
+    html += `<tr><td style="padding: 8px; border: 1px solid #ddd; background: #fff;"><strong>平均個股勝率</strong></td><td style="padding: 8px; border: 1px solid #ddd; background: #fff;">${avgWinRate.toFixed(2)}%</td>`;
     const totalProfitColor = totalProfit >= 0 ? '#f44336' : '#4caf50';
     html += `<tr><td style="padding: 8px; border: 1px solid #ddd; background: #fff;"><strong>總獲利</strong></td><td style="padding: 8px; border: 1px solid #ddd; background: #fff; color: ${totalProfitColor}; font-weight: bold; font-size: 16px;">${totalProfit.toLocaleString()}</td>`;
     const avgReturnColor = avgReturn >= 0 ? '#f44336' : '#4caf50';

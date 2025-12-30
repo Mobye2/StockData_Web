@@ -1,0 +1,7 @@
+Flask==2.3.3
+FinMind==1.4.8
+plotly==5.17.0
+pandas==2.1.1
+numpy==1.24.3
+python-dotenv==1.0.0
+requests==2.31.0

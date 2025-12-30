@@ -1,5 +1,6 @@
 import sqlite3
 import pandas as pd
+import os
 from datetime import datetime
 
 class BacktestStrategy:
@@ -12,7 +13,10 @@ class BacktestStrategy:
         self.buy_records = []
         
     def load_data(self):
-        conn = sqlite3.connect('stock.db')
+        import os
+        # 強制使用根目錄的資料庫
+        db_path = os.path.join(os.path.dirname(__file__), '..', 'stock.db')
+        conn = sqlite3.connect(db_path)
         query = f"SELECT * FROM stock_{self.stock_code} ORDER BY 日期"
         self.df = pd.read_sql_query(query, conn)
         conn.close()
@@ -326,6 +330,18 @@ class BacktestStrategy:
                     sig = (self.df['成交量'] > self.df['Volume_MA'] * volume_multiplier).fillna(False).tolist()
                     indicator_signals.append(sig)
                 
+                elif ind_type == 'ma_above':
+                    ma_period = params.get('ma_period', 20)
+                    self.df['MA'] = self.calculate_ma(ma_period)
+                    sig = (self.df['收盤價'] > self.df['MA']).fillna(False).tolist()
+                    indicator_signals.append(sig)
+                
+                elif ind_type == 'ma_below':
+                    ma_period = params.get('ma_period', 20)
+                    self.df['MA'] = self.calculate_ma(ma_period)
+                    sig = (self.df['收盤價'] < self.df['MA']).fillna(False).tolist()
+                    indicator_signals.append(sig)
+                
                 elif ind_type == 'ma_slope_up':
                     window = params.get('window', 20)
                     threshold = params.get('threshold', 10)
@@ -485,7 +501,7 @@ class BacktestStrategy:
                                                     if neckline > max(left_low, right_low) * (1 + w_height):
                                                         # 當前價格突破頸線（使用breakout_pct參數）
                                                         if closes[-1] > neckline * (1 + breakout_pct):
-                                                            print(f"[W_BOTTOM] {self.df.iloc[i]['日期']} 觸發 (收盤={closes[-1]:.2f}, 頸線={neckline:.2f})")
+                                                            # print(f"[W_BOTTOM] {self.df.iloc[i]['日期']} 觸發 (收盤={closes[-1]:.2f}, 頸線={neckline:.2f})")
                                                             sig.append(True)
                                                         else:
                                                             sig.append(False)

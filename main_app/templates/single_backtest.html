@@ -1,6 +1,7 @@
 {% extends "layout.html" %}
 
-{% block content %}
+{% block extra_style %}
+<script src="{{ url_for('static', filename='js/indicators.js') }}"></script>
 <style>
     .strategy-box {
         border: 2px solid #2196F3;
@@ -35,6 +36,10 @@
         font-size: 12px;
     }
 </style>
+
+{% endblock %}
+
+{% block content %}
 
 <h1>回測系統 v2 (策略=指標組合)</h1>
 
@@ -156,24 +161,7 @@ function editSellStrategy(id) {
     }
 }
 
-const indicatorConfigs = {
-    ma_crossover: { name: 'MA均線交叉', category: '技術類', params: { short_window: 5, long_window: 20 }, units: { short_window: '日', long_window: '日' } },
-    rsi: { name: 'RSI指標', category: '技術類', params: { period: 14, buy_threshold: 30, sell_threshold: 70 }, units: { period: '日', buy_threshold: '', sell_threshold: '' } },
-    high_volume: { name: '爆量', category: '技術類', params: { volume_multiplier: 2.0 }, units: { volume_multiplier: '倍' } },
-    ma_slope_up: { name: 'MA向上', category: '技術類', params: { window: 20, threshold: 10, hold_days: 3 }, units: { window: '日', threshold: '%', hold_days: '日' } },
-    ma_slope_down: { name: 'MA向下', category: '技術類', params: { window: 20, threshold: -10, hold_days: 3 }, units: { window: '日', threshold: '%', hold_days: '日' } },
-    w_bottom: { name: 'W底型態', category: '型態類', params: { lookback: 60, bottom_diff: 0.07, w_height: 0.10, breakout_pct: 0.01 }, units: { lookback: '日', bottom_diff: '', w_height: '', breakout_pct: '' } },
-    take_profit: { name: '停利', category: '風控類', params: { profit_pct: 10 }, units: { profit_pct: '%' } },
-    stop_loss: { name: '停損', category: '風控類', params: { loss_pct: -5 }, units: { loss_pct: '%' } },
-    foreign_consecutive_buy: { name: '外資連續買超', category: '籌碼類', params: { days: 3 }, units: { days: '日' } },
-    trust_consecutive_buy: { name: '投信連續買超', category: '籌碼類', params: { days: 3 }, units: { days: '日' } },
-    dealer_consecutive_buy: { name: '自營商連續買超', category: '籌碼類', params: { days: 3 }, units: { days: '日' } },
-    foreign_consecutive_sell: { name: '外資連續賣超', category: '籌碼類', params: { days: 3 }, units: { days: '日' } },
-    trust_consecutive_sell: { name: '投信連續賣超', category: '籌碼類', params: { days: 3 }, units: { days: '日' } },
-    foreign_holding_high: { name: '外資持股比高', category: '籌碼類', params: { threshold: 30 }, units: { threshold: '%' } },
-    foreign_holding_low: { name: '外資持股比低', category: '籌碼類', params: { threshold: 10 }, units: { threshold: '%' } },
-    trust_volume_ratio: { name: '投信買入占交易量比', category: '籌碼類', params: { days: 5, volume_ratio: 10 }, units: { days: '日', volume_ratio: '%' } }
-};
+
 
 function addBuyStrategy() {
     const id = ++buyStrategyCounter;
@@ -1041,7 +1029,7 @@ function analyzeWithAI(resultIdx) {
     showChatInterface();
     
     // 發送首次分析請求
-    sendChatMessage(null, result, code);
+    sendChatMessage(null, result, code, true);  // 使用MCP Agent
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -1112,10 +1100,10 @@ function sendUserMessage() {
     input.value = '';
     
     // 發送到AI
-    sendChatMessage(message);
+    sendChatMessage(message, true);  // 使用MCP Agent
 }
 
-function sendChatMessage(userMessage = null, backtestResult = null, stockCode = null) {
+function sendChatMessage(userMessage = null, backtestResult = null, stockCode = null, useMCP = false) {
     console.log('DEBUG: sendChatMessage 被調用');
     console.log('DEBUG: 參數 - userMessage:', userMessage, 'backtestResult:', !!backtestResult, 'stockCode:', stockCode);
     
@@ -1140,16 +1128,29 @@ function sendChatMessage(userMessage = null, backtestResult = null, stockCode = 
     
     // 如果是首次分析，包含回測資料
     if (backtestResult && stockCode) {
-        // 從股票選擇器獲取股票名稱
+        // 從股票選擇器獲取股票名稱和族群資訊
         const stockSelect = document.getElementById('stockSelect');
         const selectedOption = stockSelect.selectedOptions[0];
         const stockName = selectedOption ? selectedOption.text.split(' ')[1] || selectedOption.text : '';
         
+        // 獲取族群資訊
+        const level1 = document.getElementById('level1Select').value;
+        const level2 = document.getElementById('level2Select').value;
+        const sector = level2 ? `${level1} - ${level2}` : level1;
+        
         requestData.stock_code = stockCode;
         requestData.stock_name = stockName;
+        requestData.sector = sector;
         requestData.buy_strategies = buyStrategies.map(s => ({ indicators: s.indicators }));
         requestData.sell_strategies = sellStrategies.map(s => ({ indicators: s.indicators }));
-        requestData.backtest_result = backtestResult;
+        // 只發送關鍵績效數據和交易明細，不發送 equity_curve
+        requestData.backtest_result = {
+            return_rate: backtestResult.return_rate,
+            profit: backtestResult.profit,
+            total_trades: backtestResult.total_trades,
+            win_rate: backtestResult.win_rate,
+            trades: backtestResult.trades  // 只發送交易明細
+        };
         
         // 清空聊天記錄（首次分析）
         const existingMessages = chatMessages.querySelectorAll('div:not(#loadingMessage)');
@@ -1159,7 +1160,9 @@ function sendChatMessage(userMessage = null, backtestResult = null, stockCode = 
     console.log('DEBUG: 準備發送請求到 /api/ai-chat');
     console.log('DEBUG: 請求資料:', requestData);
     
-    fetch('/api/ai-chat', {
+    const apiEndpoint = '/api/ai-chat';  // 強制使用標準 AI 聊天接口
+    
+    fetch(apiEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestData)

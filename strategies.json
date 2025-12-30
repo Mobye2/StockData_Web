@@ -57,6 +57,45 @@
           ]
         }
       ]
+    },
+    {
+      "name": "newsell2",
+      "strategies": [
+        {
+          "indicators": [
+            {
+              "params": {
+                "hold_days": 1,
+                "threshold": -1,
+                "window": 20
+              },
+              "type": "ma_slope_down"
+            }
+          ]
+        },
+        {
+          "indicators": [
+            {
+              "params": {
+                "loss_pct": -10
+              },
+              "type": "stop_loss"
+            }
+          ]
+        },
+        {
+          "indicators": [
+            {
+              "params": {
+                "hold_days": 2,
+                "threshold": -0.5,
+                "window": 10
+              },
+              "type": "ma_slope_down"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
