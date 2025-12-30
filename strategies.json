@@ -1,0 +1,62 @@
+{
+  "buy_strategies": [
+    {
+      "name": "MA向上",
+      "strategies": [
+        {
+          "indicators": [
+            {
+              "type": "ma_slope_up",
+              "params": {
+                "window": 20,
+                "threshold": 1,
+                "hold_days": 1
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "sell_strategies": [
+    {
+      "name": "newSell",
+      "strategies": [
+        {
+          "indicators": [
+            {
+              "params": {
+                "hold_days": 1,
+                "threshold": -1,
+                "window": 20
+              },
+              "type": "ma_slope_down"
+            }
+          ]
+        },
+        {
+          "indicators": [
+            {
+              "params": {
+                "loss_pct": -10
+              },
+              "type": "stop_loss"
+            }
+          ]
+        },
+        {
+          "indicators": [
+            {
+              "params": {
+                "hold_days": 3,
+                "threshold": -0.5,
+                "window": 10
+              },
+              "type": "ma_slope_down"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

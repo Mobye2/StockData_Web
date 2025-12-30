@@ -91,7 +91,7 @@ def get_data(stock_code):
         # 過濾掉收盤價為 None 的資料
         data = [dict(row) for row in rows if row['收盤價'] is not None]
         
-        # 計算移動平均線
+        # 計算移動平均線和其他技術指標
         for i in range(len(data)):
             # 5日移動平均
             if i >= 4:
@@ -107,8 +107,19 @@ def get_data(stock_code):
             if i >= 19:
                 ma20 = sum(data[j]['收盤價'] for j in range(i-19, i+1)) / 20
                 data[i]['MA20'] = round(ma20, 2)
+            
+            # 確保三大法人資料存在（如果沒有則設為0）
+            if '外資買賣超' not in data[i] or data[i]['外資買賣超'] is None:
+                data[i]['外資買賣超'] = 0
+            if '投信買賣超' not in data[i] or data[i]['投信買賣超'] is None:
+                data[i]['投信買賣超'] = 0
+            if '自營商買賣超' not in data[i] or data[i]['自營商買賣超'] is None:
+                data[i]['自營商買賣超'] = 0
+            if '外資持股比' not in data[i] or data[i]['外資持股比'] is None:
+                data[i]['外資持股比'] = 0
                 
-    except:
+    except Exception as e:
+        print(f"Error loading data for {stock_code}: {e}")
         data = []
     conn.close()
     return jsonify(data)
@@ -128,72 +139,72 @@ def backtest(stock_code):
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
-@app.route('/api/ai-analysis', methods=['POST'])
-def ai_analysis():
+# 儲存聊天歷史的全域變數
+chat_sessions = {}
+
+@app.route('/api/ai-chat', methods=['POST'])
+def ai_chat():
     import json
     import os
     from urllib.request import Request, urlopen
     from urllib.error import HTTPError, URLError
     from dotenv import load_dotenv
+    import uuid
+    
+    print("DEBUG: AI聊天API被調用")
     
     load_dotenv(override=True)
     
     data = request.json
+    print(f"DEBUG: 收到請求資料: {data}")
+    session_id = data.get('session_id')
+    user_message = data.get('message', '')
+    
+    # 如果沒有session_id，創建新的聊天會話
+    if not session_id:
+        session_id = str(uuid.uuid4())
+        chat_sessions[session_id] = []
+    
+    # 如果是新會話且包含回測資料，初始化系統提示
+    if session_id not in chat_sessions:
+        chat_sessions[session_id] = []
+    
+    # 檢查是否包含回測資料（首次分析）
     stock_code = data.get('stock_code')
-    stock_name = data.get('stock_name')
-    sector = data.get('sector', '')
-    buy_strategies = data.get('buy_strategies', [])
-    sell_strategies = data.get('sell_strategies', [])
-    backtest_result = data.get('backtest_result', {})
-    stock_data = data.get('stock_data', [])
-    
-    # 獲取每次交易前20日的數據
-    trade_context_data = []
-    if backtest_result.get('trades'):
-        conn = get_db()
-        try:
-            # 獲取所有股票數據
-            cursor = conn.execute(f'SELECT * FROM stock_{stock_code} ORDER BY 日期')
-            all_data = [dict(row) for row in cursor.fetchall()]
-            
-            # 為每次交易提取前20日數據
-            for trade in backtest_result.get('trades', []):
-                trade_date = trade.get('日期')
-                if trade_date:
-                    # 找到交易日期的索引
-                    trade_idx = next((i for i, d in enumerate(all_data) if d['日期'] == trade_date), None)
-                    if trade_idx and trade_idx >= 20:
-                        # 提取前20日數據
-                        pre_trade_data = all_data[trade_idx-20:trade_idx]
-                        trade_context_data.append({
-                            '交易日期': trade_date,
-                            '交易類型': trade.get('類型', ''),
-                            '前20日數據': pre_trade_data
-                        })
-        except:
-            trade_context_data = []
-        finally:
-            conn.close()
-    
-    # 組織系統提示詞（專業角色設定）
-    system_prompt = """你是一位資深的量化交易分析師，具備以下專業能力：
-
-1. **技術分析專家**：精通各種技術指標（MA、RSI、MACD等）及其組合應用
-2. **策略優化師**：擅長分析交易策略的優缺點，提供具體優化建議
-3. **風險管理專家**：深度理解風險控制和資金管理原則
-4. **行為金融學家**：能夠分析交易者的行為模式和心理偏誤
-5. **台灣股市專家**：熟悉台灣股市特性環境
-
-**分析原則**：
-- 優先目標：最大化總獲利（絕對金額）
-- 次要目標：提升勝率和減少回撤
-- 深度分析使用者的操作習慣和偏好
-- 提供具體、可執行的優化建議
-
-**回答風格**：專業、精確、實用，使用數據支持的分析結論。"""
-    
-    # 組織用戶提示詞
-    user_prompt = f"""請對以下台股回測結果進行深度分析：
+    if stock_code and len(chat_sessions[session_id]) == 0:
+        # 首次分析，包含完整回測資料
+        stock_name = data.get('stock_name')
+        sector = data.get('sector', '')
+        buy_strategies = data.get('buy_strategies', [])
+        sell_strategies = data.get('sell_strategies', [])
+        backtest_result = data.get('backtest_result', {})
+        
+        # 獲取交易前20日數據
+        trade_context_data = []
+        if backtest_result.get('trades'):
+            conn = get_db()
+            try:
+                cursor = conn.execute(f'SELECT * FROM stock_{stock_code} ORDER BY 日期')
+                all_data = [dict(row) for row in cursor.fetchall()]
+                
+                for trade in backtest_result.get('trades', []):
+                    trade_date = trade.get('日期')
+                    if trade_date:
+                        trade_idx = next((i for i, d in enumerate(all_data) if d['日期'] == trade_date), None)
+                        if trade_idx and trade_idx >= 20:
+                            pre_trade_data = all_data[trade_idx-20:trade_idx]
+                            trade_context_data.append({
+                                '交易日期': trade_date,
+                                '交易類型': trade.get('類型', ''),
+                                '前20日數據': pre_trade_data
+                            })
+            except:
+                trade_context_data = []
+            finally:
+                conn.close()
+        
+        # 組織首次分析的完整提示
+        initial_prompt = f"""請對以下台股回測結果進行深度分析：
 
 ## 股票資訊
 - **代碼**：{stock_code}
@@ -201,10 +212,10 @@ def ai_analysis():
 - **族群**：{sector}
 
 ## 交易策略設定
-### 買進策略（任一達成即買進）：
+### 買進策略：
 {json.dumps(buy_strategies, ensure_ascii=False, indent=2)}
 
-### 賣出策略（任一達成即賣出）：
+### 賣出策略：
 {json.dumps(sell_strategies, ensure_ascii=False, indent=2)}
 
 ## 回測績效結果
@@ -212,28 +223,32 @@ def ai_analysis():
 - **總獲利**：{backtest_result.get('profit', 0):,} 元
 - **交易次數**：{backtest_result.get('total_trades', 0)} 次
 - **勝率**：{backtest_result.get('win_rate', 0):.2f}%
-- **最大回撤**：{backtest_result.get('max_drawdown', 0):.2f}%
-- **平均每筆獲利**：{backtest_result.get('profit', 0) / max(backtest_result.get('total_trades', 1), 1):,.0f} 元
 
 ## 詳細交易記錄
 {json.dumps(backtest_result.get('trades', []), ensure_ascii=False, indent=2)}
 
-## 每次交易前20日市場環境分析
-{json.dumps(trade_context_data, ensure_ascii=False, indent=2)}
-
-## 分析要求
-請基於以上資料，提供以下分析：
-
-### 1. 獲利最大化優化建議，
-- **主要目標**：提升總獲利金額
-- 建議新增或移除的指標組合
-- 提供具體的參數調整建議
-- 在不衝突下提供勝率提升策略
-
-請以專業、數據化的方式進行分析，並提供具體可操作的建議。
-直接針對策略指標或參數給予建議即可，請給予一個方案，用條列口語的方式表達"""
+請提供策略分析和優化建議。"""
+        
+        chat_sessions[session_id].append({
+            'role': 'user',
+            'content': initial_prompt
+        })
+    else:
+        # 後續對話
+        chat_sessions[session_id].append({
+            'role': 'user',
+            'content': user_message
+        })
     
+    # 系統提示詞
+    system_prompt = """你是一位資深的量化交易分析師，具備以下專業能力：
 
+1. **技術分析專家**：精通各種技術指標及其組合應用
+2. **策略優化師**：擅長分析交易策略的優缺點，提供具體優化建議
+3. **風險管理專家**：深度理解風險控制和資金管理原則
+4. **台灣股市專家**：熟悉台灣股市特性環境
+
+**回答風格**：專業、精確、實用，使用數據支持的分析結論。可以進行多輪對話，回答用戶的後續問題。"""
     
     try:
         api_key = os.getenv('BEDROCK_API_KEY')
@@ -241,17 +256,17 @@ def ai_analysis():
         if not api_key:
             return jsonify({'error': 'API Key未設定，請在.env檔案中設定BEDROCK_API_KEY'}), 500
         
+        print(f"DEBUG: 準備發送AI請求，session_id: {session_id}")
+        print(f"DEBUG: 聊天歷史長度: {len(chat_sessions[session_id])}")
+        
         payload = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 1000,
             "system": system_prompt,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": user_prompt
-                }
-            ]
+            "messages": chat_sessions[session_id]
         }
+        
+        print("DEBUG: 開始發送API請求...")
         
         req = Request(
             'https://bedrock-runtime.us-east-1.amazonaws.com/model/global.anthropic.claude-sonnet-4-20250514-v1:0/invoke',
@@ -263,29 +278,130 @@ def ai_analysis():
         )
         
         with urlopen(req, timeout=60) as response:
+            print(f"DEBUG: 收到API回應，狀態碼: {response.status}")
             result = json.loads(response.read().decode('utf-8'))
-            analysis = result['content'][0]['text']
+            ai_response = result['content'][0]['text']
+            print("DEBUG: AI回應解析成功")
             
-            # 在 console 顯示 AI 回應
-            print("=" * 80)
-            print("AI RESPONSE:")
-            print("=" * 80)
-            print(analysis)
-            print("=" * 80)
+            # 將AI回應加入聊天歷史
+            chat_sessions[session_id].append({
+                'role': 'assistant',
+                'content': ai_response
+            })
             
             return jsonify({
-                'analysis': analysis,
-                'user_prompt': user_prompt,
-                'system_prompt': system_prompt
+                'session_id': session_id,
+                'response': ai_response,
+                'chat_history': chat_sessions[session_id]
             })
             
     except HTTPError as e:
         error_body = e.read().decode('utf-8')
+        print(f"DEBUG: HTTP錯誤 - 狀態碼: {e.code}, 錯誤內容: {error_body}")
         return jsonify({'error': f'API請求失敗: {e.code} - {error_body}'}), 500
     except URLError as e:
+        print(f"DEBUG: 網路錯誤 - {str(e.reason)}")
         return jsonify({'error': f'網路錯誤: {str(e.reason)}'}), 500
     except Exception as e:
+        print(f"DEBUG: 其他錯誤 - {str(e)}")
         return jsonify({'error': f'AI分析失敗: {str(e)}'}), 500
+
+@app.route('/api/ai-analysis', methods=['POST'])
+def ai_analysis():
+    # 重導向到新的聊天API
+    return ai_chat()
+
+@app.route('/api/strategies', methods=['GET'])
+def get_strategies():
+    import json
+    import os
+    
+    strategies_file = 'strategies.json'
+    if not os.path.exists(strategies_file):
+        return jsonify({'buy_strategies': [], 'sell_strategies': []})
+    
+    try:
+        with open(strategies_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/strategies', methods=['POST'])
+def save_strategy():
+    import json
+    import os
+    
+    data = request.json
+    strategy_type = data.get('type')  # 'buy' or 'sell'
+    name = data.get('name')
+    strategies = data.get('strategies')
+    
+    if not all([strategy_type, name, strategies]):
+        return jsonify({'error': '缺少必要參數'}), 400
+    
+    strategies_file = 'strategies.json'
+    
+    # 載入現有策略
+    if os.path.exists(strategies_file):
+        try:
+            with open(strategies_file, 'r', encoding='utf-8') as f:
+                saved_data = json.load(f)
+        except:
+            saved_data = {'buy_strategies': [], 'sell_strategies': []}
+    else:
+        saved_data = {'buy_strategies': [], 'sell_strategies': []}
+    
+    # 添加新策略
+    strategy_entry = {'name': name, 'strategies': strategies}
+    
+    if strategy_type == 'buy':
+        saved_data['buy_strategies'].append(strategy_entry)
+    elif strategy_type == 'sell':
+        saved_data['sell_strategies'].append(strategy_entry)
+    else:
+        return jsonify({'error': '無效的策略類型'}), 400
+    
+    # 儲存到檔案
+    try:
+        with open(strategies_file, 'w', encoding='utf-8') as f:
+            json.dump(saved_data, f, ensure_ascii=False, indent=2)
+        return jsonify({'success': True, 'message': '策略已儲存'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/strategies/<strategy_type>/<int:index>', methods=['DELETE'])
+def delete_strategy(strategy_type, index):
+    import json
+    import os
+    
+    strategies_file = 'strategies.json'
+    if not os.path.exists(strategies_file):
+        return jsonify({'error': '策略檔案不存在'}), 404
+    
+    try:
+        with open(strategies_file, 'r', encoding='utf-8') as f:
+            saved_data = json.load(f)
+        
+        if strategy_type == 'buy':
+            if 0 <= index < len(saved_data['buy_strategies']):
+                saved_data['buy_strategies'].pop(index)
+            else:
+                return jsonify({'error': '策略索引無效'}), 400
+        elif strategy_type == 'sell':
+            if 0 <= index < len(saved_data['sell_strategies']):
+                saved_data['sell_strategies'].pop(index)
+            else:
+                return jsonify({'error': '策略索引無效'}), 400
+        else:
+            return jsonify({'error': '無效的策略類型'}), 400
+        
+        with open(strategies_file, 'w', encoding='utf-8') as f:
+            json.dump(saved_data, f, ensure_ascii=False, indent=2)
+        
+        return jsonify({'success': True, 'message': '策略已刪除'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/test-ai', methods=['GET'])
 def test_ai():
@@ -300,8 +416,8 @@ def test_ai():
     try:
         api_key = os.getenv('BEDROCK_API_KEY')
         
-        # 在測試AI功能中顯示TOKEN
-        print(f"DEBUG: BEDROCK_API_KEY = {api_key}")
+        # 檢查API Key是否存在（不顯示完整內容）
+        print(f"DEBUG: API Key loaded: {'Yes' if api_key else 'No'} (Length: {len(api_key) if api_key else 0})")
         
         if not api_key:
             return jsonify({'error': 'API Key未設定，請在.env檔案中設定BEDROCK_API_KEY'}), 500

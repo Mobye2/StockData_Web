@@ -90,6 +90,34 @@ const indicatorConfigs = {
     trust_volume_ratio: { name: '投信買入占交易量比', category: '籌碼類', params: { days: 5, volume_ratio: 10 } }
 };
 
+// 載入策略列表
+function loadStrategiesList() {
+    fetch('/api/strategies')
+        .then(res => res.json())
+        .then(data => {
+            // 載入買進策略
+            const buySelect = document.getElementById('savedBuyStrategies');
+            buySelect.innerHTML = '<option value="">-- 載入 --</option>';
+            data.buy_strategies.forEach((strategy, idx) => {
+                const option = document.createElement('option');
+                option.value = idx;
+                option.textContent = strategy.name;
+                buySelect.appendChild(option);
+            });
+            
+            // 載入賣出策略
+            const sellSelect = document.getElementById('savedSellStrategies');
+            sellSelect.innerHTML = '<option value="">-- 載入 --</option>';
+            data.sell_strategies.forEach((strategy, idx) => {
+                const option = document.createElement('option');
+                option.value = idx;
+                option.textContent = strategy.name;
+                sellSelect.appendChild(option);
+            });
+        })
+        .catch(err => console.error('載入策略失敗:', err));
+}
+
 // 載入族群資料
 fetch('/api/sectors')
     .then(res => res.json())
@@ -103,6 +131,8 @@ fetch('/api/sectors')
             select.appendChild(option);
         });
         loadStocks();
+        // 載入策略列表
+        loadStrategiesList();
     });
 
 function loadLevel2() {
@@ -569,32 +599,44 @@ function loadSavedBuyStrategy() {
     const select = document.getElementById('savedBuyStrategies');
     const idx = select.value;
     if (idx === '') return;
-    const saved = JSON.parse(localStorage.getItem('savedBuyStrategies') || '[]');
-    const strategy = saved[idx];
-    if (!strategy) return;
-    buyStrategies = [];
-    buyStrategyCounter = 0;
-    strategy.strategies.forEach(s => {
-        const id = ++buyStrategyCounter;
-        buyStrategies.push({ id, indicators: s.indicators, confirmed: false });
-    });
-    renderBuyStrategies();
+    
+    fetch('/api/strategies')
+        .then(res => res.json())
+        .then(data => {
+            const strategy = data.buy_strategies[idx];
+            if (!strategy) return;
+            
+            buyStrategies = [];
+            buyStrategyCounter = 0;
+            strategy.strategies.forEach(s => {
+                const id = ++buyStrategyCounter;
+                buyStrategies.push({ id, indicators: s.indicators, confirmed: false });
+            });
+            renderBuyStrategies();
+        })
+        .catch(err => console.error('載入買進策略失敗:', err));
 }
 
 function loadSavedSellStrategy() {
     const select = document.getElementById('savedSellStrategies');
     const idx = select.value;
     if (idx === '') return;
-    const saved = JSON.parse(localStorage.getItem('savedSellStrategies') || '[]');
-    const strategy = saved[idx];
-    if (!strategy) return;
-    sellStrategies = [];
-    sellStrategyCounter = 0;
-    strategy.strategies.forEach(s => {
-        const id = ++sellStrategyCounter;
-        sellStrategies.push({ id, indicators: s.indicators, confirmed: false });
-    });
-    renderSellStrategies();
+    
+    fetch('/api/strategies')
+        .then(res => res.json())
+        .then(data => {
+            const strategy = data.sell_strategies[idx];
+            if (!strategy) return;
+            
+            sellStrategies = [];
+            sellStrategyCounter = 0;
+            strategy.strategies.forEach(s => {
+                const id = ++sellStrategyCounter;
+                sellStrategies.push({ id, indicators: s.indicators, confirmed: false });
+            });
+            renderSellStrategies();
+        })
+        .catch(err => console.error('載入賣出策略失敗:', err));
 }
 
 function deleteBuyStrategy() {
