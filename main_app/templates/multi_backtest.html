@@ -441,7 +441,7 @@ function renderBuyStrategies() {
                     <div style="background: white; border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin: 8px 0;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <select onchange="changeIndicatorType(${strategy.id}, ${idx}, true)">
-                                ${Object.entries(indicatorConfigs).reduce((acc, [key, config]) => {
+                                ${Object.entries(indicatorConfigs).filter(([key, config]) => config.allowBuy).reduce((acc, [key, config]) => {
                                     if (!acc.categories.includes(config.category)) {
                                         acc.categories.push(config.category);
                                         acc.html += `<optgroup label="${config.category}">`;
@@ -498,7 +498,7 @@ function renderSellStrategies() {
                     <div style="background: white; border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin: 8px 0;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <select onchange="changeIndicatorType(${strategy.id}, ${idx}, false)">
-                                ${Object.entries(indicatorConfigs).reduce((acc, [key, config]) => {
+                                ${Object.entries(indicatorConfigs).filter(([key, config]) => config.allowSell).reduce((acc, [key, config]) => {
                                     if (!acc.categories.includes(config.category)) {
                                         acc.categories.push(config.category);
                                         acc.html += `<optgroup label="${config.category}">`;
@@ -537,10 +537,29 @@ function saveBuyStrategy() {
     }
     const name = prompt('請輸入買進策略名稱:');
     if (!name) return;
-    let saved = JSON.parse(localStorage.getItem('savedBuyStrategies') || '[]');
-    saved.push({ name, strategies: buyStrategies.map(s => ({ indicators: s.indicators })) });
-    localStorage.setItem('savedBuyStrategies', JSON.stringify(saved));
-    loadSavedBuyStrategiesList();
+    
+    const data = {
+        type: 'buy',
+        name: name,
+        strategies: buyStrategies.map(s => ({ indicators: s.indicators }))
+    };
+    
+    fetch('/api/strategies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    })
+    .then(res => res.json())
+    .then(result => {
+        if (result.success) {
+            loadSavedBuyStrategiesList();
+        } else {
+            alert('保存失敗: ' + result.error);
+        }
+    })
+    .catch(error => {
+        alert('保存失敗: ' + error.message);
+    });
 }
 
 function saveSellStrategy() {
@@ -550,34 +569,63 @@ function saveSellStrategy() {
     }
     const name = prompt('請輸入賣出策略名稱:');
     if (!name) return;
-    let saved = JSON.parse(localStorage.getItem('savedSellStrategies') || '[]');
-    saved.push({ name, strategies: sellStrategies.map(s => ({ indicators: s.indicators })) });
-    localStorage.setItem('savedSellStrategies', JSON.stringify(saved));
-    loadSavedSellStrategiesList();
+    
+    const data = {
+        type: 'sell',
+        name: name,
+        strategies: sellStrategies.map(s => ({ indicators: s.indicators }))
+    };
+    
+    fetch('/api/strategies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    })
+    .then(res => res.json())
+    .then(result => {
+        if (result.success) {
+            loadSavedSellStrategiesList();
+        } else {
+            alert('保存失敗: ' + result.error);
+        }
+    })
+    .catch(error => {
+        alert('保存失敗: ' + error.message);
+    });
 }
 
 function loadSavedBuyStrategiesList() {
-    const select = document.getElementById('savedBuyStrategies');
-    const saved = JSON.parse(localStorage.getItem('savedBuyStrategies') || '[]');
-    select.innerHTML = '<option value="">-- 載入 --</option>';
-    saved.forEach((strategy, idx) => {
-        const option = document.createElement('option');
-        option.value = idx;
-        option.text = strategy.name;
-        select.appendChild(option);
-    });
+    fetch('/api/strategies')
+        .then(res => res.json())
+        .then(data => {
+            const select = document.getElementById('savedBuyStrategies');
+            const saved = data.buy_strategies || [];
+            select.innerHTML = '<option value="">-- 載入 --</option>';
+            saved.forEach((strategy, idx) => {
+                const option = document.createElement('option');
+                option.value = idx;
+                option.text = strategy.name;
+                select.appendChild(option);
+            });
+        })
+        .catch(err => console.error('載入買進策略列表失敗:', err));
 }
 
 function loadSavedSellStrategiesList() {
-    const select = document.getElementById('savedSellStrategies');
-    const saved = JSON.parse(localStorage.getItem('savedSellStrategies') || '[]');
-    select.innerHTML = '<option value="">-- 載入 --</option>';
-    saved.forEach((strategy, idx) => {
-        const option = document.createElement('option');
-        option.value = idx;
-        option.text = strategy.name;
-        select.appendChild(option);
-    });
+    fetch('/api/strategies')
+        .then(res => res.json())
+        .then(data => {
+            const select = document.getElementById('savedSellStrategies');
+            const saved = data.sell_strategies || [];
+            select.innerHTML = '<option value="">-- 載入 --</option>';
+            saved.forEach((strategy, idx) => {
+                const option = document.createElement('option');
+                option.value = idx;
+                option.text = strategy.name;
+                select.appendChild(option);
+            });
+        })
+        .catch(err => console.error('載入賣出策略列表失敗:', err));
 }
 
 function loadSavedBuyStrategy() {
@@ -589,7 +637,10 @@ function loadSavedBuyStrategy() {
         .then(res => res.json())
         .then(data => {
             const strategy = data.buy_strategies[idx];
-            if (!strategy) return;
+            if (!strategy) {
+                alert('找不到該策略');
+                return;
+            }
             
             buyStrategies = [];
             buyStrategyCounter = 0;
@@ -599,7 +650,9 @@ function loadSavedBuyStrategy() {
             });
             renderBuyStrategies();
         })
-        .catch(err => console.error('載入買進策略失敗:', err));
+        .catch(err => {
+            alert('載入失敗: ' + err.message);
+        });
 }
 
 function loadSavedSellStrategy() {
@@ -611,7 +664,10 @@ function loadSavedSellStrategy() {
         .then(res => res.json())
         .then(data => {
             const strategy = data.sell_strategies[idx];
-            if (!strategy) return;
+            if (!strategy) {
+                alert('找不到該策略');
+                return;
+            }
             
             sellStrategies = [];
             sellStrategyCounter = 0;
@@ -621,7 +677,9 @@ function loadSavedSellStrategy() {
             });
             renderSellStrategies();
         })
-        .catch(err => console.error('載入賣出策略失敗:', err));
+        .catch(err => {
+            alert('載入失敗: ' + err.message);
+        });
 }
 
 function deleteBuyStrategy() {
@@ -632,11 +690,19 @@ function deleteBuyStrategy() {
         return;
     }
     if (!confirm('確定要刪除此買進策略?')) return;
-    let saved = JSON.parse(localStorage.getItem('savedBuyStrategies') || '[]');
-    saved.splice(idx, 1);
-    localStorage.setItem('savedBuyStrategies', JSON.stringify(saved));
-    loadSavedBuyStrategiesList();
-    alert('買進策略已刪除!');
+    
+    fetch(`/api/strategies/buy/${idx}`, { method: 'DELETE' })
+        .then(res => res.json())
+        .then(result => {
+            if (result.success) {
+                loadSavedBuyStrategiesList();
+            } else {
+                alert('刪除失敗: ' + result.error);
+            }
+        })
+        .catch(error => {
+            alert('刪除失敗: ' + error.message);
+        });
 }
 
 function deleteSellStrategy() {
@@ -647,11 +713,19 @@ function deleteSellStrategy() {
         return;
     }
     if (!confirm('確定要刪除此賣出策略?')) return;
-    let saved = JSON.parse(localStorage.getItem('savedSellStrategies') || '[]');
-    saved.splice(idx, 1);
-    localStorage.setItem('savedSellStrategies', JSON.stringify(saved));
-    loadSavedSellStrategiesList();
-    alert('賣出策略已刪除!');
+    
+    fetch(`/api/strategies/sell/${idx}`, { method: 'DELETE' })
+        .then(res => res.json())
+        .then(result => {
+            if (result.success) {
+                loadSavedSellStrategiesList();
+            } else {
+                alert('刪除失敗: ' + result.error);
+            }
+        })
+        .catch(error => {
+            alert('刪除失敗: ' + error.message);
+        });
 }
 
 // 初始化策略列表

@@ -522,6 +522,220 @@ class BacktestStrategy:
                         else:
                             sig.append(False)
                     indicator_signals.append(sig)
+                
+
+                elif ind_type == 'volume_ratio':
+                    days = params.get('days', 5)
+                    threshold = params.get('threshold', 1.5)
+                    sig = []
+                    for i in range(len(self.df)):
+                        if i < days:
+                            sig.append(False)
+                            continue
+                        
+                        current_vol = self.df.iloc[i]['成交量']
+                        prev_vol = self.df.iloc[i-days]['成交量']
+                        
+                        if prev_vol > 0:
+                            ratio = current_vol / prev_vol
+                            sig.append(ratio >= threshold)
+                        else:
+                            sig.append(False)
+                    indicator_signals.append(sig)
+                
+                elif ind_type == 'below_institutional_cost':
+                    days = params.get('days', 20)
+                    threshold_pct = params.get('threshold_pct', 5)
+                    sig = []
+                    for i in range(len(self.df)):
+                        if i < days:
+                            sig.append(False)
+                            continue
+                        
+                        # 計算N日法人平均成本（買入扣除賣出）
+                        total_cost = 0
+                        total_shares = 0
+                        for j in range(i - days + 1, i + 1):
+                            # 法人 = 外資 + 投信 + 自營商
+                            foreign = self.df.iloc[j].get('外資買賣超', 0) or 0
+                            trust = self.df.iloc[j].get('投信買賣超', 0) or 0
+                            dealer = self.df.iloc[j].get('自營商買賣超', 0) or 0
+                            institutional_shares = foreign + trust + dealer
+                            
+                            # 買賣超正數=買入，負數=賣出
+                            price = self.df.iloc[j]['收盤價']
+                            total_cost += institutional_shares * price
+                            total_shares += institutional_shares
+                        
+                        if total_shares > 0:
+                            avg_cost = total_cost / total_shares
+                            current_price = self.df.iloc[i]['收盤價']
+                            # 檢查當前價格是否低於平均成本的X%
+                            threshold_price = avg_cost * (1 - threshold_pct / 100)
+                            is_below = current_price < threshold_price
+                            
+                            # 印出調試資訊
+                            if i % 20 == 0 or is_below:  # 每20筆或觸發時印出
+                                print(f"[{self.df.iloc[i]['日期']}] 法人成本={avg_cost:.2f}, 當前價={current_price:.2f}, 門檻={threshold_price:.2f}, 觸發={'YES' if is_below else 'NO'}")
+                            
+                            sig.append(is_below)
+                        else:
+                            sig.append(False)
+                    indicator_signals.append(sig)
+                
+                elif ind_type == 'price_rise':
+                    days = params.get('days', 1)
+                    threshold_pct = params.get('threshold_pct', 5)
+                    sig = []
+                    for i in range(len(self.df)):
+                        if i - days < 0:
+                            sig.append(False)
+                            continue
+                        
+                        prev_price = self.df.iloc[i-days]['收盤價']
+                        current_price = self.df.iloc[i]['收盤價']
+                        if prev_price > 0:
+                            change_pct = ((current_price - prev_price) / prev_price) * 100
+                            sig.append(change_pct >= threshold_pct)
+                        else:
+                            sig.append(False)
+                    indicator_signals.append(sig)
+                
+                elif ind_type == 'long_lower_shadow':
+                    threshold = params.get('threshold', 0.03)
+                    sig = []
+                    for i in range(len(self.df)):
+                        open_price = self.df.iloc[i]['開盤價']
+                        close_price = self.df.iloc[i]['收盤價']
+                        low_price = self.df.iloc[i]['最低價']
+                        if open_price > 0:
+                            if open_price > close_price:
+                                shadow = (close_price - low_price) / open_price
+                            else:
+                                shadow = (open_price - low_price) / open_price
+                            sig.append(shadow > threshold)
+                        else:
+                            sig.append(False)
+                    indicator_signals.append(sig)
+                
+                elif ind_type == 'long_upper_shadow':
+                    threshold = params.get('threshold', 0.03)
+                    sig = []
+                    for i in range(len(self.df)):
+                        open_price = self.df.iloc[i]['開盤價']
+                        close_price = self.df.iloc[i]['收盤價']
+                        high_price = self.df.iloc[i]['最高價']
+                        if open_price > 0:
+                            if open_price > close_price:
+                                shadow = (high_price - open_price) / open_price
+                            else:
+                                shadow = (high_price - close_price) / open_price
+                            sig.append(shadow > threshold)
+                        else:
+                            sig.append(False)
+                    indicator_signals.append(sig)
+                
+                elif ind_type == 'ma_support':
+                    ma_period = params.get('ma_period', 20)
+                    ma_col = f'MA_{ma_period}'
+                    if ma_col not in self.df.columns:
+                        self.df[ma_col] = self.calculate_ma(ma_period)
+                    sig = []
+                    for i in range(len(self.df)):
+                        if i < 3:
+                            sig.append(False)
+                            continue
+                        ma_i = self.df.iloc[i][ma_col]
+                        ma_i1 = self.df.iloc[i-1][ma_col]
+                        ma_i2 = self.df.iloc[i-2][ma_col]
+                        if pd.isna(ma_i) or pd.isna(ma_i1) or pd.isna(ma_i2):
+                            sig.append(False)
+                            continue
+                        cond1 = ma_i2 < self.df.iloc[i-2]['收盤價']
+                        cond2 = ma_i1 < self.df.iloc[i-1]['收盤價']
+                        cond3 = self.df.iloc[i]['最低價'] < ma_i < self.df.iloc[i]['收盤價']
+                        sig.append(cond1 and cond2 and cond3)
+                    indicator_signals.append(sig)
+                
+                elif ind_type == 'ma_golden_cross':
+                    short_window = params.get('short_window', 5)
+                    long_window = params.get('long_window', 20)
+                    days = params.get('days', 4)
+                    short_col = f'MA_{short_window}'
+                    long_col = f'MA_{long_window}'
+                    if short_col not in self.df.columns:
+                        self.df[short_col] = self.calculate_ma(short_window)
+                    if long_col not in self.df.columns:
+                        self.df[long_col] = self.calculate_ma(long_window)
+                    sig = []
+                    for i in range(len(self.df)):
+                        if i < days + 1:
+                            sig.append(False)
+                            continue
+                        gap_narrowing = True
+                        for j in range(days):
+                            idx_curr = i - j
+                            idx_prev = i - j - 1
+                            if pd.isna(self.df.iloc[idx_curr][short_col]) or pd.isna(self.df.iloc[idx_curr][long_col]) or \
+                               pd.isna(self.df.iloc[idx_prev][short_col]) or pd.isna(self.df.iloc[idx_prev][long_col]):
+                                gap_narrowing = False
+                                break
+                            gap_current = self.df.iloc[idx_curr][long_col] - self.df.iloc[idx_curr][short_col]
+                            gap_prev = self.df.iloc[idx_prev][long_col] - self.df.iloc[idx_prev][short_col]
+                            if gap_current >= gap_prev:
+                                gap_narrowing = False
+                                break
+                        if gap_narrowing:
+                            gap_prev = self.df.iloc[i-1][long_col] - self.df.iloc[i-1][short_col]
+                            gap_current = self.df.iloc[i][long_col] - self.df.iloc[i][short_col]
+                            if gap_prev > 0 and gap_current < 0:
+                                sig.append(True)
+                            else:
+                                sig.append(False)
+                        else:
+                            sig.append(False)
+                    indicator_signals.append(sig)
+                
+                elif ind_type == 'pullback_correction':
+                    self.df['MA5'] = self.calculate_ma(5)
+                    self.df['MA20'] = self.calculate_ma(20)
+                    self.df['MA40'] = self.calculate_ma(40)
+                    self.df['Slope_5'] = self.df['MA5'].diff()
+                    self.df['Slope_20'] = self.df['MA20'].diff()
+                    self.df['Slope_40'] = self.df['MA40'].diff()
+                    slope_40_threshold = params.get('slope_40_threshold', 0.15)
+                    slope_5_range = params.get('slope_5_range', 0.2)
+                    sig = []
+                    for i in range(len(self.df)):
+                        slope_40 = self.df.iloc[i]['Slope_40']
+                        slope_20 = self.df.iloc[i]['Slope_20']
+                        slope_5 = self.df.iloc[i]['Slope_5']
+                        if pd.isna(slope_40) or pd.isna(slope_20) or pd.isna(slope_5):
+                            sig.append(False)
+                        else:
+                            cond = (slope_40 > slope_40_threshold and 
+                                   slope_20 < 0 and 
+                                   -slope_5_range < slope_5 < slope_5_range)
+                            sig.append(cond)
+                    indicator_signals.append(sig)
+                
+                elif ind_type == 'price_drop':
+                    days = params.get('days', 1)
+                    threshold_pct = params.get('threshold_pct', -5)
+                    sig = []
+                    for i in range(len(self.df)):
+                        if i - days < 0:
+                            sig.append(False)
+                            continue
+                        
+                        prev_price = self.df.iloc[i-days]['收盤價']
+                        current_price = self.df.iloc[i]['收盤價']
+                        if prev_price > 0:
+                            change_pct = ((current_price - prev_price) / prev_price) * 100
+                            sig.append(change_pct <= threshold_pct)
+                        else:
+                            sig.append(False)
+                    indicator_signals.append(sig)
             
             # 策略內所有指標都要達標（AND）
             if indicator_signals:
@@ -600,6 +814,59 @@ class BacktestStrategy:
                         else:
                             count[i] = 0
                     sig = [count[i] >= days for i in range(len(self.df))]
+                    indicator_signals.append(sig)
+                
+                elif ind_type == 'price_drop':
+                    days = params.get('days', 1)
+                    threshold_pct = params.get('threshold_pct', -5)
+                    sig = []
+                    for i in range(len(self.df)):
+                        if i - days < 0:
+                            sig.append(False)
+                            continue
+                        
+                        prev_price = self.df.iloc[i-days]['收盤價']
+                        current_price = self.df.iloc[i]['收盤價']
+                        if prev_price > 0:
+                            change_pct = ((current_price - prev_price) / prev_price) * 100
+                            sig.append(change_pct <= threshold_pct)
+                        else:
+                            sig.append(False)
+                    indicator_signals.append(sig)
+                
+                elif ind_type == 'price_rise':
+                    days = params.get('days', 1)
+                    threshold_pct = params.get('threshold_pct', 5)
+                    sig = []
+                    for i in range(len(self.df)):
+                        if i - days < 0:
+                            sig.append(False)
+                            continue
+                        
+                        prev_price = self.df.iloc[i-days]['收盤價']
+                        current_price = self.df.iloc[i]['收盤價']
+                        if prev_price > 0:
+                            change_pct = ((current_price - prev_price) / prev_price) * 100
+                            sig.append(change_pct >= threshold_pct)
+                        else:
+                            sig.append(False)
+                    indicator_signals.append(sig)
+                
+                elif ind_type == 'long_upper_shadow':
+                    threshold = params.get('threshold', 0.03)
+                    sig = []
+                    for i in range(len(self.df)):
+                        open_price = self.df.iloc[i]['開盤價']
+                        close_price = self.df.iloc[i]['收盤價']
+                        high_price = self.df.iloc[i]['最高價']
+                        if open_price > 0:
+                            if open_price > close_price:
+                                shadow = (high_price - open_price) / open_price
+                            else:
+                                shadow = (high_price - close_price) / open_price
+                            sig.append(shadow > threshold)
+                        else:
+                            sig.append(False)
                     indicator_signals.append(sig)
             
             # 策略內所有指標都要達標（AND）

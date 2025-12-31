@@ -16,6 +16,21 @@
           ]
         }
       ]
+    },
+    {
+      "name": "TEST",
+      "strategies": [
+        {
+          "indicators": [
+            {
+              "type": "long_lower_shadow",
+              "params": {
+                "threshold": 0.03
+              }
+            }
+          ]
+        }
+      ]
     }
   ],
   "sell_strategies": [

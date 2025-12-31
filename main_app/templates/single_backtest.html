@@ -265,7 +265,7 @@ function renderBuyStrategies() {
                     <div class="indicator-item">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <select onchange="changeIndicatorType(${strategy.id}, ${idx}, true)">
-                                ${Object.entries(indicatorConfigs).reduce((acc, [key, config]) => {
+                                ${Object.entries(indicatorConfigs).filter(([key, config]) => config.allowBuy).reduce((acc, [key, config]) => {
                                     if (!acc.categories.includes(config.category)) {
                                         acc.categories.push(config.category);
                                         acc.html += `<optgroup label="${config.category}">`;
@@ -324,7 +324,7 @@ function renderSellStrategies() {
                     <div class="indicator-item">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <select onchange="changeIndicatorType(${strategy.id}, ${idx}, false)">
-                                ${Object.entries(indicatorConfigs).reduce((acc, [key, config]) => {
+                                ${Object.entries(indicatorConfigs).filter(([key, config]) => config.allowSell).reduce((acc, [key, config]) => {
                                     if (!acc.categories.includes(config.category)) {
                                         acc.categories.push(config.category);
                                         acc.html += `<optgroup label="${config.category}">`;
