@@ -1,23 +1,6 @@
 {
   "buy_strategies": [
     {
-      "name": "MA向上",
-      "strategies": [
-        {
-          "indicators": [
-            {
-              "type": "ma_slope_up",
-              "params": {
-                "window": 20,
-                "threshold": 1,
-                "hold_days": 1
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
       "name": "TEST",
       "strategies": [
         {
@@ -26,6 +9,29 @@
               "type": "long_lower_shadow",
               "params": {
                 "threshold": 0.03
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "MA向上_量增",
+      "strategies": [
+        {
+          "indicators": [
+            {
+              "params": {
+                "hold_days": 2,
+                "threshold": 2,
+                "window": 10
+              },
+              "type": "ma_slope_up"
+            },
+            {
+              "type": "high_volume",
+              "params": {
+                "volume_multiplier": 1.2
               }
             }
           ]
@@ -107,6 +113,32 @@
                 "window": 10
               },
               "type": "ma_slope_down"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "均線死亡交叉_停損",
+      "strategies": [
+        {
+          "indicators": [
+            {
+              "type": "ma_crossover",
+              "params": {
+                "short_window": 5,
+                "long_window": 30
+              }
+            }
+          ]
+        },
+        {
+          "indicators": [
+            {
+              "type": "stop_loss",
+              "params": {
+                "loss_pct": -12
+              }
             }
           ]
         }

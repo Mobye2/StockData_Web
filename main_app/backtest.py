@@ -310,7 +310,21 @@ class BacktestStrategy:
                     long_window = params.get('long_window', 20)
                     self.df['MA_short'] = self.calculate_ma(short_window)
                     self.df['MA_long'] = self.calculate_ma(long_window)
-                    sig = (self.df['MA_short'] > self.df['MA_long']).tolist()
+                    # 黃金交叉：前一日短MA <= 長MA，當日短MA > 長MA
+                    sig = []
+                    for i in range(len(self.df)):
+                        if i == 0:
+                            sig.append(False)
+                        else:
+                            prev_short = self.df.iloc[i-1]['MA_short']
+                            prev_long = self.df.iloc[i-1]['MA_long']
+                            curr_short = self.df.iloc[i]['MA_short']
+                            curr_long = self.df.iloc[i]['MA_long']
+                            if pd.isna(prev_short) or pd.isna(prev_long) or pd.isna(curr_short) or pd.isna(curr_long):
+                                sig.append(False)
+                            else:
+                                # 黃金交叉：前一日短MA在下方，當日短MA在上方
+                                sig.append(prev_short <= prev_long and curr_short > curr_long)
                     indicator_signals.append(sig)
                 
                 elif ind_type == 'rsi':
@@ -325,9 +339,35 @@ class BacktestStrategy:
                     indicator_signals.append(sig)
                 
                 elif ind_type == 'high_volume':
+                    volume_period = params.get('volume_period', 20)
                     volume_multiplier = params.get('volume_multiplier', 2.0)
-                    self.df['Volume_MA'] = self.df['成交量'].rolling(window=20).mean()
-                    sig = (self.df['成交量'] > self.df['Volume_MA'] * volume_multiplier).fillna(False).tolist()
+                    consecutive_days = params.get('consecutive_days', 1)
+                    self.df['Volume_MA'] = self.df['成交量'].rolling(window=volume_period).mean()
+                    count = [0] * len(self.df)
+                    for i in range(1, len(self.df)):
+                        vol_ma = self.df.iloc[i]['Volume_MA']
+                        vol = self.df.iloc[i]['成交量']
+                        if not pd.isna(vol_ma) and vol_ma > 0 and vol > vol_ma * volume_multiplier:
+                            count[i] = count[i-1] + 1
+                        else:
+                            count[i] = 0
+                    sig = [count[i] >= consecutive_days for i in range(len(self.df))]
+                    indicator_signals.append(sig)
+                
+                elif ind_type == 'low_volume':
+                    volume_period = params.get('volume_period', 20)
+                    volume_multiplier = params.get('volume_multiplier', 0.5)
+                    consecutive_days = params.get('consecutive_days', 1)
+                    self.df['Volume_MA'] = self.df['成交量'].rolling(window=volume_period).mean()
+                    count = [0] * len(self.df)
+                    for i in range(1, len(self.df)):
+                        vol_ma = self.df.iloc[i]['Volume_MA']
+                        vol = self.df.iloc[i]['成交量']
+                        if not pd.isna(vol_ma) and vol_ma > 0 and vol < vol_ma * volume_multiplier:
+                            count[i] = count[i-1] + 1
+                        else:
+                            count[i] = 0
+                    sig = [count[i] >= consecutive_days for i in range(len(self.df))]
                     indicator_signals.append(sig)
                 
                 elif ind_type == 'ma_above':
@@ -344,18 +384,18 @@ class BacktestStrategy:
                 
                 elif ind_type == 'ma_slope_up':
                     window = params.get('window', 20)
-                    threshold = params.get('threshold', 10)
-                    hold_days = params.get('hold_days', 3)
+                    threshold = params.get('threshold', 0.02)
                     self.df['MA'] = self.calculate_ma(window)
                     self.df['MA_slope_pct'] = (self.df['MA'].diff() / self.df['MA'].shift(1)) * 100
-                    above_count = [0] * len(self.df)
-                    for i in range(1, len(self.df)):
-                        slope_pct = self.df.iloc[i]['MA_slope_pct'] if not pd.isna(self.df.iloc[i]['MA_slope_pct']) else 0
-                        if slope_pct > threshold:
-                            above_count[i] = above_count[i-1] + 1
-                        else:
-                            above_count[i] = 0
-                    sig = [above_count[i] >= hold_days for i in range(len(self.df))]
+                    sig = [(self.df.iloc[i]['MA_slope_pct'] > threshold if not pd.isna(self.df.iloc[i]['MA_slope_pct']) else False) for i in range(len(self.df))]
+                    indicator_signals.append(sig)
+                
+                elif ind_type == 'ma_slope_down':
+                    window = params.get('window', 20)
+                    threshold = params.get('threshold', -0.05)
+                    self.df['MA'] = self.calculate_ma(window)
+                    self.df['MA_slope_pct'] = (self.df['MA'].diff() / self.df['MA'].shift(1)) * 100
+                    sig = [(self.df.iloc[i]['MA_slope_pct'] < threshold if not pd.isna(self.df.iloc[i]['MA_slope_pct']) else False) for i in range(len(self.df))]
                     indicator_signals.append(sig)
                 
                 elif ind_type == 'foreign_consecutive_buy':
@@ -696,29 +736,6 @@ class BacktestStrategy:
                             sig.append(False)
                     indicator_signals.append(sig)
                 
-                elif ind_type == 'pullback_correction':
-                    self.df['MA5'] = self.calculate_ma(5)
-                    self.df['MA20'] = self.calculate_ma(20)
-                    self.df['MA40'] = self.calculate_ma(40)
-                    self.df['Slope_5'] = self.df['MA5'].diff()
-                    self.df['Slope_20'] = self.df['MA20'].diff()
-                    self.df['Slope_40'] = self.df['MA40'].diff()
-                    slope_40_threshold = params.get('slope_40_threshold', 0.15)
-                    slope_5_range = params.get('slope_5_range', 0.2)
-                    sig = []
-                    for i in range(len(self.df)):
-                        slope_40 = self.df.iloc[i]['Slope_40']
-                        slope_20 = self.df.iloc[i]['Slope_20']
-                        slope_5 = self.df.iloc[i]['Slope_5']
-                        if pd.isna(slope_40) or pd.isna(slope_20) or pd.isna(slope_5):
-                            sig.append(False)
-                        else:
-                            cond = (slope_40 > slope_40_threshold and 
-                                   slope_20 < 0 and 
-                                   -slope_5_range < slope_5 < slope_5_range)
-                            sig.append(cond)
-                    indicator_signals.append(sig)
-                
                 elif ind_type == 'price_drop':
                     days = params.get('days', 1)
                     threshold_pct = params.get('threshold_pct', -5)
@@ -754,7 +771,21 @@ class BacktestStrategy:
                     long_window = params.get('long_window', 20)
                     self.df['MA_short'] = self.calculate_ma(short_window)
                     self.df['MA_long'] = self.calculate_ma(long_window)
-                    sig = (self.df['MA_short'] < self.df['MA_long']).tolist()
+                    # 死亡交叉：前一日短MA >= 長MA，當日短MA < 長MA
+                    sig = []
+                    for i in range(len(self.df)):
+                        if i == 0:
+                            sig.append(False)
+                        else:
+                            prev_short = self.df.iloc[i-1]['MA_short']
+                            prev_long = self.df.iloc[i-1]['MA_long']
+                            curr_short = self.df.iloc[i]['MA_short']
+                            curr_long = self.df.iloc[i]['MA_long']
+                            if pd.isna(prev_short) or pd.isna(prev_long) or pd.isna(curr_short) or pd.isna(curr_long):
+                                sig.append(False)
+                            else:
+                                # 死亡交叉：前一日短MA在上方，當日短MA在下方
+                                sig.append(prev_short >= prev_long and curr_short < curr_long)
                     indicator_signals.append(sig)
                 
                 elif ind_type == 'rsi':
@@ -770,18 +801,10 @@ class BacktestStrategy:
                 
                 elif ind_type == 'ma_slope_down':
                     window = params.get('window', 20)
-                    threshold = params.get('threshold', -10)
-                    hold_days = params.get('hold_days', 3)
+                    threshold = params.get('threshold', -0.05)
                     self.df['MA'] = self.calculate_ma(window)
                     self.df['MA_slope_pct'] = (self.df['MA'].diff() / self.df['MA'].shift(1)) * 100
-                    below_count = [0] * len(self.df)
-                    for i in range(1, len(self.df)):
-                        slope_pct = self.df.iloc[i]['MA_slope_pct'] if not pd.isna(self.df.iloc[i]['MA_slope_pct']) else 0
-                        if slope_pct < threshold:
-                            below_count[i] = below_count[i-1] + 1
-                        else:
-                            below_count[i] = 0
-                    sig = [below_count[i] >= hold_days for i in range(len(self.df))]
+                    sig = [(self.df.iloc[i]['MA_slope_pct'] < threshold if not pd.isna(self.df.iloc[i]['MA_slope_pct']) else False) for i in range(len(self.df))]
                     indicator_signals.append(sig)
                 
                 elif ind_type == 'take_profit':
@@ -850,6 +873,38 @@ class BacktestStrategy:
                             sig.append(change_pct >= threshold_pct)
                         else:
                             sig.append(False)
+                    indicator_signals.append(sig)
+                
+                elif ind_type == 'high_volume':
+                    volume_period = params.get('volume_period', 20)
+                    volume_multiplier = params.get('volume_multiplier', 2.0)
+                    consecutive_days = params.get('consecutive_days', 1)
+                    self.df['Volume_MA'] = self.df['成交量'].rolling(window=volume_period).mean()
+                    count = [0] * len(self.df)
+                    for i in range(1, len(self.df)):
+                        vol_ma = self.df.iloc[i]['Volume_MA']
+                        vol = self.df.iloc[i]['成交量']
+                        if not pd.isna(vol_ma) and vol_ma > 0 and vol > vol_ma * volume_multiplier:
+                            count[i] = count[i-1] + 1
+                        else:
+                            count[i] = 0
+                    sig = [count[i] >= consecutive_days for i in range(len(self.df))]
+                    indicator_signals.append(sig)
+                
+                elif ind_type == 'low_volume':
+                    volume_period = params.get('volume_period', 20)
+                    volume_multiplier = params.get('volume_multiplier', 0.5)
+                    consecutive_days = params.get('consecutive_days', 1)
+                    self.df['Volume_MA'] = self.df['成交量'].rolling(window=volume_period).mean()
+                    count = [0] * len(self.df)
+                    for i in range(1, len(self.df)):
+                        vol_ma = self.df.iloc[i]['Volume_MA']
+                        vol = self.df.iloc[i]['成交量']
+                        if not pd.isna(vol_ma) and vol_ma > 0 and vol < vol_ma * volume_multiplier:
+                            count[i] = count[i-1] + 1
+                        else:
+                            count[i] = 0
+                    sig = [count[i] >= consecutive_days for i in range(len(self.df))]
                     indicator_signals.append(sig)
                 
                 elif ind_type == 'long_upper_shadow':
