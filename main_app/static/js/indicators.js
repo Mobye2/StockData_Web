@@ -15,6 +15,7 @@ const indicatorConfigs = {
     ma_support: { name: '均線支撐', category: '型態類', params: { ma_period: 20 }, units: { ma_period: '日' }, allowBuy: true, allowSell: false },
     ma_golden_cross: { name: '均線黃金交叉', category: '型態類', params: { short_window: 5, long_window: 20, days: 4 }, units: { short_window: '日', long_window: '日', days: '日' }, allowBuy: true, allowSell: false },
     w_bottom: { name: 'W底型態', category: '型態類', params: { lookback: 60, bottom_diff: 0.07, w_height: 0.10, breakout_pct: 0.01 }, units: { lookback: '日', bottom_diff: '', w_height: '', breakout_pct: '' }, allowBuy: true, allowSell: true },
+    ascending_triangle: { name: '上升三角', category: '型態類', params: { lookback: 40, resistance_tolerance: 0.02, min_highs: 2, min_lows: 2, breakout_pct: 0.01, min_amplitude: 0.10 }, units: { lookback: '日', resistance_tolerance: '', min_highs: '個', min_lows: '個', breakout_pct: '', min_amplitude: '' }, allowBuy: true, allowSell: false },
     take_profit: { name: '停利', category: '風控類', params: { profit_pct: 10 }, units: { profit_pct: '%' }, allowBuy: false, allowSell: true },
     stop_loss: { name: '停損', category: '風控類', params: { loss_pct: -5 }, units: { loss_pct: '%' }, allowBuy: false, allowSell: true },
     foreign_consecutive_buy: { name: '外資連續買超', category: '籌碼類', params: { days: 3 }, units: { days: '日' }, allowBuy: true, allowSell: true },

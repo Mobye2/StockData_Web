@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>{% block title %}台股分析系統{% endblock %}</title>
+    <title>{% block title %}TST system{% endblock %}</title>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     {% block extra_style %}{% endblock %}
     <style>
@@ -48,7 +48,7 @@
 </head>
 <body>
     <div class="sidebar">
-        <h2>台股分析</h2>
+        <h2>TST系統</h2>
         <a href="/" class="menu-item {% if active_page == 'kline' %}active{% endif %}">📈 K線圖</a>
         <a href="/backtest" class="menu-item {% if active_page == 'backtest' %}active{% endif %}">🔄 回測系統</a>
         <a href="/multi-backtest" class="menu-item {% if active_page == 'multi_backtest' %}active{% endif %}">📊 多檔回測</a>

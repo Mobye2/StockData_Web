@@ -753,6 +753,107 @@ class BacktestStrategy:
                         else:
                             sig.append(False)
                     indicator_signals.append(sig)
+                
+                elif ind_type == 'ascending_triangle':
+                    lookback = params.get('lookback', 40)
+                    resistance_tolerance = params.get('resistance_tolerance', 0.02)
+                    min_highs = params.get('min_highs', 2)
+                    min_lows = params.get('min_lows', 2)
+                    breakout_pct = params.get('breakout_pct', 0.01)
+                    min_amplitude = params.get('min_amplitude', 0.10)
+                    sig = []
+                    for i in range(len(self.df)):
+                        if i < lookback:
+                            sig.append(False)
+                            continue
+                        
+                        window_data = self.df.iloc[i-lookback:i+1]
+                        closes = window_data['收盤價'].values
+                        
+                        # 步驟1: 找出所有極值點（使用收盤價）
+                        extremes = []
+                        for j in range(2, len(closes)-2):
+                            is_high = closes[j] > max(closes[j-2:j]) and closes[j] > max(closes[j+1:j+3])
+                            is_low = closes[j] < min(closes[j-2:j]) and closes[j] < min(closes[j+1:j+3])
+                            if is_high:
+                                extremes.append((j, 'high', closes[j]))
+                            elif is_low:
+                                extremes.append((j, 'low', closes[j]))
+                        
+                        if len(extremes) < min_highs + min_lows:
+                            sig.append(False)
+                            continue
+                        
+                        # 步驟2: 確保高低點交錯，且相鄰高低點至少差3%
+                        filtered = []
+                        for idx, typ, val in extremes:
+                            if not filtered:
+                                filtered.append((idx, typ, val))
+                            elif filtered[-1][1] != typ:
+                                # 檢查與前一個極值點的差距是否至少3%
+                                prev_val = filtered[-1][2]
+                                diff_pct = abs(val - prev_val) / prev_val
+                                if diff_pct >= 0.03:
+                                    filtered.append((idx, typ, val))
+                            else:
+                                if typ == 'high' and val > filtered[-1][2]:
+                                    filtered[-1] = (idx, typ, val)
+                                elif typ == 'low' and val < filtered[-1][2]:
+                                    filtered[-1] = (idx, typ, val)
+                        
+                        # 分離高低點
+                        high_points = [(idx, val) for idx, typ, val in filtered if typ == 'high']
+                        low_points = [(idx, val) for idx, typ, val in filtered if typ == 'low']
+                        
+                        if len(high_points) < min_highs or len(low_points) < min_lows:
+                            sig.append(False)
+                            continue
+                        
+                        # 步驟3: 檢查水平壓力線
+                        recent_highs = high_points[-min_highs:]
+                        high_values = [val for _, val in recent_highs]
+                        avg_high = sum(high_values) / len(high_values)
+                        resistance_valid = all(abs(val - avg_high) / avg_high <= resistance_tolerance for val in high_values)
+                        
+                        if not resistance_valid:
+                            sig.append(False)
+                            continue
+                        
+                        # 步驟4: 檢查上升支撐線（低點必須遞增且差距>2.5%）
+                        recent_lows = low_points[-min_lows:]
+                        ascending_support = True
+                        for j in range(len(recent_lows)-1):
+                            curr_low = recent_lows[j][1]
+                            next_low = recent_lows[j+1][1]
+                            # 檢查是否遞增
+                            if next_low <= curr_low:
+                                ascending_support = False
+                                break
+                            # 檢查差距是否>2.5%
+                            diff_pct = (next_low - curr_low) / curr_low
+                            if diff_pct <= 0.025:
+                                ascending_support = False
+                                break
+                        
+                        if not ascending_support:
+                            sig.append(False)
+                            continue
+                        
+                        # 步驟5: 檢查高低點振幅（至少N%）
+                        low_values = [val for _, val in recent_lows]
+                        min_low = min(low_values)
+                        amplitude = (avg_high - min_low) / min_low
+                        
+                        if amplitude < min_amplitude:
+                            sig.append(False)
+                            continue
+                        
+                        # 步驟6: 檢查突破
+                        if closes[-1] > avg_high * (1 + breakout_pct):
+                            sig.append(True)
+                        else:
+                            sig.append(False)
+                    indicator_signals.append(sig)
             
             # 策略內所有指標都要達標（AND）
             if indicator_signals:

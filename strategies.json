@@ -143,6 +143,31 @@
           ]
         }
       ]
+    },
+    {
+      "name": "基本停利停損",
+      "strategies": [
+        {
+          "indicators": [
+            {
+              "type": "take_profit",
+              "params": {
+                "profit_pct": 15
+              }
+            }
+          ]
+        },
+        {
+          "indicators": [
+            {
+              "type": "stop_loss",
+              "params": {
+                "loss_pct": -10
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }
