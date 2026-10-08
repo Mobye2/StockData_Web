@@ -11,9 +11,11 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import sys
 import io
+from db_config import ensure_db, upload_db
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 load_dotenv()
+ensure_db()  # 啟動時從 S3 取得最新 stock.db（本地已有則略過）
 api = DataLoader()
 api.login_by_token(api_token=os.getenv('Finmind_token'))
 
@@ -254,3 +256,4 @@ if __name__ == '__main__':
         time.sleep(1)
     
     print(f'\n完成！成功: {success}, 失敗: {fail}')
+    upload_db()  # 更新後把 stock.db 存回 S3

@@ -1,0 +1,152 @@
+{% extends "layout.html" %}
+
+{% block title %}資料管理 - 台股分析系統{% endblock %}
+
+{% block content %}
+<style>
+    .dm-wrap { max-width: 760px; }
+    .dm-card {
+        background: #fff;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .dm-card h3 { margin-bottom: 12px; color: #2c3e50; }
+    .dm-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .dm-btn {
+        border: none;
+        border-radius: 6px;
+        padding: 10px 18px;
+        font-size: 15px;
+        cursor: pointer;
+        color: #fff;
+        transition: opacity 0.2s;
+    }
+    .dm-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .dm-btn.download { background: #1976d2; }
+    .dm-btn.upload { background: #388e3c; }
+    .dm-status {
+        margin-top: 14px;
+        padding: 10px 12px;
+        border-radius: 6px;
+        font-size: 14px;
+        display: none;
+    }
+    .dm-status.show { display: block; }
+    .dm-status.ok { background: #e8f5e9; color: #2e7d32; }
+    .dm-status.err { background: #ffebee; color: #c62828; }
+    .dm-status.info { background: #e3f2fd; color: #1565c0; }
+    .dm-meta { color: #666; font-size: 13px; margin-top: 10px; line-height: 1.6; }
+    .dm-dirty { color: #e65100; font-weight: bold; }
+    .dm-placeholder {
+        color: #999;
+        font-style: italic;
+        border: 1px dashed #ccc;
+        border-radius: 6px;
+        padding: 20px;
+        text-align: center;
+    }
+</style>
+
+<div class="dm-wrap">
+    <h1 style="margin-bottom:20px;">🗄️ 資料管理</h1>
+
+    <!-- 資料庫雲端同步 -->
+    <div class="dm-card">
+        <h3>資料庫雲端同步（S3）</h3>
+        <p style="color:#555; margin-bottom:14px;">
+            手動從雲端下載最新的 <code>stock.db</code>，或把本地的 <code>stock.db</code> 上傳回雲端。
+            下載後不需重新啟動，下一次查詢就會使用新資料。
+        </p>
+        <div class="dm-row">
+            <button class="dm-btn download" id="btnDownload">⬇️ 從雲端下載最新 DB</button>
+            <button class="dm-btn upload" id="btnUpload">⬆️ 上傳本地 DB 到雲端</button>
+        </div>
+        <div class="dm-status" id="dmStatus"></div>
+        <div class="dm-meta" id="dmMeta">讀取狀態中…</div>
+    </div>
+
+    <!-- 預留：下載指定股票資訊 -->
+    <div class="dm-card">
+        <h3>下載指定股票資訊</h3>
+        <div class="dm-placeholder">
+            （此區塊預留給未來功能：選擇指定股票代碼下載其資料，或上傳自訂股票清單）
+        </div>
+    </div>
+</div>
+
+<script>
+    const statusEl = document.getElementById('dmStatus');
+    const metaEl = document.getElementById('dmMeta');
+    const btnDownload = document.getElementById('btnDownload');
+    const btnUpload = document.getElementById('btnUpload');
+
+    // 本地 DB 是否有尚未上傳的變動（供關閉頁面時提醒）
+    let dbDirty = false;
+
+    function showStatus(type, msg) {
+        statusEl.className = 'dm-status show ' + type;
+        statusEl.textContent = msg;
+    }
+
+    async function refreshStatus() {
+        try {
+            const r = await fetch('/api/db/status');
+            const d = await r.json();
+            if (!d.exists) {
+                metaEl.innerHTML = '本地尚無 <code>stock.db</code>，請先從雲端下載。';
+            } else {
+                let mtimeStr = d.mtime ? new Date(d.mtime * 1000).toLocaleString() : '-';
+                let dirtyStr = d.dirty
+                    ? ' <span class="dm-dirty">⚠️ 本地有變動尚未上傳</span>'
+                    : '';
+                metaEl.innerHTML = `本地 DB 大小：${d.size_mb} MB　|　最後修改：${mtimeStr}${dirtyStr}`;
+            }
+            dbDirty = !!d.dirty;
+        } catch (e) {
+            metaEl.textContent = '無法讀取狀態：' + e;
+        }
+    }
+
+    async function callApi(url, startMsg, btn) {
+        btnDownload.disabled = true;
+        btnUpload.disabled = true;
+        showStatus('info', startMsg);
+        try {
+            const r = await fetch(url, { method: 'POST' });
+            const d = await r.json();
+            if (d.success) {
+                showStatus('ok', '✅ ' + d.message);
+            } else {
+                showStatus('err', '❌ ' + (d.error || '操作失敗'));
+            }
+        } catch (e) {
+            showStatus('err', '❌ 發生錯誤：' + e);
+        } finally {
+            btnDownload.disabled = false;
+            btnUpload.disabled = false;
+            refreshStatus();
+        }
+    }
+
+    btnDownload.addEventListener('click', () => {
+        callApi('/api/db/download', '正在從雲端下載最新資料庫…');
+    });
+
+    btnUpload.addEventListener('click', () => {
+        callApi('/api/db/upload', '正在上傳本地資料庫到雲端…');
+    });
+
+    // 關閉／離開頁面時，若本地有未上傳的變動則提醒（瀏覽器會跳制式確認框）
+    window.addEventListener('beforeunload', (e) => {
+        if (dbDirty) {
+            e.preventDefault();
+            e.returnValue = '';  // 觸發瀏覽器原生的離開確認框
+        }
+    });
+
+    refreshStatus();
+</script>
+{% endblock %}

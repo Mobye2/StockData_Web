@@ -1,7 +1,34 @@
 from flask import Flask, render_template, jsonify, request
 import sqlite3
+import os
+from db_config import ensure_db, upload_db, DB_PATH
 
 app = Flask(__name__)
+
+# 用一個標記檔記錄「上次與 S3 同步（上傳或下載）的時間」。
+# 若本地 stock.db 的修改時間比它新，代表本地有變動尚未上傳 => dirty。
+_SYNC_MARK = '.db_last_sync'
+
+def _mark_synced():
+    """記錄本次同步時間（下載或上傳成功後呼叫）。"""
+    try:
+        with open(_SYNC_MARK, 'w') as f:
+            f.write(str(os.path.getmtime(DB_PATH) if os.path.exists(DB_PATH) else 0))
+    except Exception:
+        pass
+
+def _is_dirty():
+    """本地 db 修改時間是否比上次同步新（代表有未上傳變動）。"""
+    if not os.path.exists(DB_PATH):
+        return False
+    if not os.path.exists(_SYNC_MARK):
+        return True  # 從沒同步過，視為有變動
+    try:
+        with open(_SYNC_MARK) as f:
+            last = float(f.read().strip() or 0)
+        return os.path.getmtime(DB_PATH) > last + 0.5  # 容忍 0.5 秒誤差
+    except Exception:
+        return True
 
 def get_db():
     conn = sqlite3.connect('stock.db')
@@ -19,6 +46,46 @@ def backtest_page():
 @app.route('/multi-backtest')
 def multi_backtest_page():
     return render_template('multi_backtest.html', active_page='multi_backtest')
+
+@app.route('/data-manager')
+def data_manager_page():
+    return render_template('data_manager.html', active_page='data_manager')
+
+# ---- 資料庫 S3 同步 API ----
+
+@app.route('/api/db/status')
+def db_status():
+    """回傳本地 stock.db 的狀態，供前端顯示與關頁面提醒使用。"""
+    exists = os.path.exists(DB_PATH)
+    size = os.path.getsize(DB_PATH) if exists else 0
+    mtime = os.path.getmtime(DB_PATH) if exists else None
+    return jsonify({
+        'exists': exists,
+        'size': size,
+        'size_mb': round(size / 1024 / 1024, 2) if exists else 0,
+        'mtime': mtime,
+        'dirty': _is_dirty(),  # True 表示本地有變動尚未上傳
+    })
+
+@app.route('/api/db/download', methods=['POST'])
+def db_download():
+    """從 S3 下載最新的 stock.db 覆蓋本地（手動按鈕觸發）。"""
+    try:
+        ensure_db(force=True)
+        _mark_synced()  # 下載完＝本地已是雲端最新版，視為乾淨
+        return jsonify({'success': True, 'message': '已從雲端下載最新資料庫'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/db/upload', methods=['POST'])
+def db_upload():
+    """把本地 stock.db 上傳回 S3（手動按鈕觸發）。"""
+    try:
+        upload_db()
+        _mark_synced()  # 已上傳，清除未上傳標記
+        return jsonify({'success': True, 'message': '已上傳本地資料庫到雲端'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/sectors')
 def get_sectors():

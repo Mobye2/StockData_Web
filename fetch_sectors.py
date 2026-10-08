@@ -14,8 +14,11 @@ import time
 import warnings
 import sys
 import io
+from db_config import ensure_db, upload_db
 warnings.filterwarnings('ignore')
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+ensure_db()  # 啟動時從 S3 取得最新 stock.db（本地已有則略過）
 
 def fetch_stock_sector(stock_id):
     """從 CMoney 撈取個股族群資訊"""
@@ -183,3 +186,5 @@ if __name__ == '__main__':
         update_missing_sectors()
     else:
         print('所有股票都已有有效族群資訊！')
+
+    upload_db()  # 更新後把 stock.db 存回 S3
