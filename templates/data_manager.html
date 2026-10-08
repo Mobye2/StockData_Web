@@ -68,12 +68,51 @@
         <div class="dm-meta" id="dmMeta">讀取狀態中…</div>
     </div>
 
-    <!-- 預留：下載指定股票資訊 -->
+    <!-- 指定股票抓取（FinMind） -->
     <div class="dm-card">
-        <h3>下載指定股票資訊</h3>
-        <div class="dm-placeholder">
-            （此區塊預留給未來功能：選擇指定股票代碼下載其資料，或上傳自訂股票清單）
+        <h3>抓取指定股票資料（FinMind）</h3>
+        <p style="color:#555; margin-bottom:14px;">
+            輸入股票代號（可逗號或換行分隔），或上傳清單檔（每行一個代號），
+            用 FinMind 抓取歷史資料存進資料庫。單次最多 20 檔。
+        </p>
+
+        <label style="display:block; margin-bottom:6px; font-weight:bold;">股票代號</label>
+        <textarea id="codesInput" rows="3" placeholder="例如：2330, 2454, 1303"
+            style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px; font-size:14px; resize:vertical;"></textarea>
+
+        <div style="margin:10px 0;">
+            <label style="display:block; margin-bottom:6px; font-weight:bold;">或上傳清單檔（.csv / .txt，每行一個代號）</label>
+            <input type="file" id="listFile" accept=".csv,.txt">
         </div>
+
+        <div class="dm-row" style="margin:14px 0;">
+            <div>
+                <label style="font-weight:bold;">起始日期</label><br>
+                <input type="date" id="startDate" value="2021-01-01"
+                    style="padding:6px; border:1px solid #ccc; border-radius:6px;">
+            </div>
+            <div style="display:flex; gap:16px; align-items:center; margin-top:18px;">
+                <label><input type="checkbox" id="chkKline" checked> 抓 K 線</label>
+                <label><input type="checkbox" id="chkChip"> 抓籌碼</label>
+            </div>
+        </div>
+
+        <button class="dm-btn download" id="btnFetch" style="background:#6a1b9a;">🚀 開始抓取</button>
+
+        <div class="dm-status" id="fetchStatus"></div>
+
+        <table id="fetchResult" style="width:100%; margin-top:14px; border-collapse:collapse; display:none;">
+            <thead>
+                <tr style="background:#f0f0f0; text-align:left;">
+                    <th style="padding:8px; border-bottom:1px solid #ddd;">代號</th>
+                    <th style="padding:8px; border-bottom:1px solid #ddd;">名稱</th>
+                    <th style="padding:8px; border-bottom:1px solid #ddd;">K線</th>
+                    <th style="padding:8px; border-bottom:1px solid #ddd;">籌碼</th>
+                    <th style="padding:8px; border-bottom:1px solid #ddd;">狀態</th>
+                </tr>
+            </thead>
+            <tbody id="fetchResultBody"></tbody>
+        </table>
     </div>
 </div>
 
@@ -144,6 +183,96 @@
         if (dbDirty) {
             e.preventDefault();
             e.returnValue = '';  // 觸發瀏覽器原生的離開確認框
+        }
+    });
+
+    // ---- 指定股票抓取 ----
+    const btnFetch = document.getElementById('btnFetch');
+    const fetchStatus = document.getElementById('fetchStatus');
+    const fetchResult = document.getElementById('fetchResult');
+    const fetchResultBody = document.getElementById('fetchResultBody');
+    const codesInput = document.getElementById('codesInput');
+    const listFile = document.getElementById('listFile');
+
+    function showFetchStatus(type, msg) {
+        fetchStatus.className = 'dm-status show ' + type;
+        fetchStatus.textContent = msg;
+    }
+
+    // 讀上傳的清單檔，把內容塞進代號輸入框
+    listFile.addEventListener('change', () => {
+        const f = listFile.files[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            const existing = codesInput.value.trim();
+            codesInput.value = (existing ? existing + '\n' : '') + reader.result;
+            showFetchStatus('info', `已讀入清單檔「${f.name}」，代號已填入上方輸入框`);
+        };
+        reader.readAsText(f);
+    });
+
+    function statusBadge(s) {
+        const map = {
+            ok: '<span style="color:#2e7d32;">✅ 完成</span>',
+            skip: '<span style="color:#1565c0;">⏭️ 已最新</span>',
+            nodata: '<span style="color:#e65100;">⚠️ 無資料</span>',
+            fail: '<span style="color:#c62828;">❌ 失敗</span>',
+        };
+        return map[s] || s;
+    }
+
+    btnFetch.addEventListener('click', async () => {
+        const raw = codesInput.value.trim();
+        if (!raw) { showFetchStatus('err', '請先輸入股票代號'); return; }
+
+        const fetchKline = document.getElementById('chkKline').checked;
+        const fetchChip = document.getElementById('chkChip').checked;
+        if (!fetchKline && !fetchChip) {
+            showFetchStatus('err', '請至少勾選「抓 K 線」或「抓籌碼」');
+            return;
+        }
+
+        btnFetch.disabled = true;
+        showFetchStatus('info', '抓取中…（檔數多時可能需要數十秒，請勿關閉頁面）');
+        fetchResult.style.display = 'none';
+        fetchResultBody.innerHTML = '';
+
+        try {
+            const r = await fetch('/api/fetch/stocks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    raw_codes: raw,
+                    start_date: document.getElementById('startDate').value || '2021-01-01',
+                    fetch_kline: fetchKline,
+                    fetch_chip: fetchChip,
+                }),
+            });
+            const d = await r.json();
+            if (!d.success) {
+                showFetchStatus('err', '❌ ' + (d.error || '抓取失敗'));
+            } else {
+                let okCount = d.results.filter(x => x.status === 'ok').length;
+                showFetchStatus('ok', `✅ 抓取完成，共 ${d.results.length} 檔（成功 ${okCount} 檔）`);
+                d.results.forEach(x => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td style="padding:8px; border-bottom:1px solid #eee;">${x.code}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee;">${x.name || '-'}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee;">${x.kline || '-'}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee;">${x.chip || '-'}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee;">${statusBadge(x.status)}</td>`;
+                    fetchResultBody.appendChild(tr);
+                });
+                fetchResult.style.display = 'table';
+                dbDirty = true;  // 抓完有新資料，提醒記得上傳（若 S3 未自動成功）
+                refreshStatus();
+            }
+        } catch (e) {
+            showFetchStatus('err', '❌ 發生錯誤：' + e);
+        } finally {
+            btnFetch.disabled = false;
         }
     });
 

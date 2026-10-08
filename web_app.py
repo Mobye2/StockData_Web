@@ -87,6 +87,76 @@ def db_upload():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+# ---- 指定股票抓取（FinMind）----
+
+MAX_FETCH_STOCKS = 20  # 單次最多抓取檔數（同步版，避免請求逾時）
+
+def _parse_codes(raw):
+    """把使用者輸入（逗號/換行/空白分隔）清洗成不重複的代號清單。"""
+    import re
+    if not raw:
+        return []
+    parts = re.split(r'[\s,，、]+', str(raw))
+    seen = []
+    for p in parts:
+        p = p.strip()
+        if p and p not in seen:
+            seen.append(p)
+    return seen
+
+@app.route('/api/fetch/stocks', methods=['POST'])
+def fetch_stocks_api():
+    """
+    用 FinMind 抓取「指定股票代號」的歷史資料並寫入 stock.db。
+    輸入 JSON：
+      - codes        : 代號陣列，或 raw_codes 字串（逗號/換行分隔）
+      - start_date   : 起始日期（預設 2021-01-01）
+      - fetch_kline  : 是否抓 K 線（預設 true）
+      - fetch_chip   : 是否抓籌碼（預設 false）
+    """
+    data = request.json or {}
+    codes = data.get('codes')
+    if not codes:
+        codes = _parse_codes(data.get('raw_codes', ''))
+    else:
+        # 已是陣列也做一次清洗去重
+        codes = _parse_codes(','.join(str(c) for c in codes))
+
+    start_date = data.get('start_date') or '2021-01-01'
+    fetch_kline = data.get('fetch_kline', True)
+    fetch_chip = data.get('fetch_chip', False)
+
+    if not codes:
+        return jsonify({'success': False, 'error': '請輸入至少一個股票代號'}), 400
+    if not fetch_kline and not fetch_chip:
+        return jsonify({'success': False, 'error': '請至少選擇抓取 K 線或籌碼其中一項'}), 400
+    if len(codes) > MAX_FETCH_STOCKS:
+        return jsonify({'success': False,
+                        'error': f'單次最多抓取 {MAX_FETCH_STOCKS} 檔，你輸入了 {len(codes)} 檔'}), 400
+
+    try:
+        from fetch_core import fetch_stocks
+        results = fetch_stocks(
+            codes,
+            start_date=start_date,
+            fetch_kline=fetch_kline,
+            fetch_chip=fetch_chip,
+        )
+        # 抓完存回 S3；標記本地有新變動
+        _mark_dirty_and_upload()
+        return jsonify({'success': True, 'results': results})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+def _mark_dirty_and_upload():
+    """抓資料後：嘗試上傳 S3；若未設定 S3 則略過（本地仍更新成功）。"""
+    try:
+        upload_db()
+        _mark_synced()
+    except Exception as e:
+        # 未設定 S3 或上傳失敗：不擋住抓取結果，只記錄
+        print(f"[fetch] 抓取後上傳 S3 略過/失敗：{e}")
+
 @app.route('/api/sectors')
 def get_sectors():
     conn = get_db()
