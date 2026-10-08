@@ -97,7 +97,10 @@
             </div>
         </div>
 
-        <button class="dm-btn download" id="btnFetch" style="background:#6a1b9a;">🚀 開始抓取</button>
+        <div class="dm-row">
+            <button class="dm-btn download" id="btnFetch" style="background:#6a1b9a;">🚀 開始抓取</button>
+            <button class="dm-btn" id="btnSectors" style="background:#00897b;" title="抓新股後，補上這些股票的族群分類（來源 CMoney）">🏷️ 更新族群分類</button>
+        </div>
 
         <div class="dm-status" id="fetchStatus"></div>
 
@@ -272,6 +275,30 @@
         } catch (e) {
             showFetchStatus('err', '❌ 發生錯誤：' + e);
         } finally {
+            btnFetch.disabled = false;
+        }
+    });
+
+    // ---- 更新族群分類 ----
+    const btnSectors = document.getElementById('btnSectors');
+    btnSectors.addEventListener('click', async () => {
+        btnSectors.disabled = true;
+        btnFetch.disabled = true;
+        showFetchStatus('info', '正在更新族群分類…（逐檔查 CMoney，缺族群的檔數多時需較久）');
+        try {
+            const r = await fetch('/api/fetch/sectors', { method: 'POST' });
+            const d = await r.json();
+            if (d.success) {
+                showFetchStatus('ok', '✅ ' + d.message);
+                dbDirty = true;
+                refreshStatus();
+            } else {
+                showFetchStatus('err', '❌ ' + (d.error || '更新族群失敗'));
+            }
+        } catch (e) {
+            showFetchStatus('err', '❌ 發生錯誤：' + e);
+        } finally {
+            btnSectors.disabled = false;
             btnFetch.disabled = false;
         }
     });

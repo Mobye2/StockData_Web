@@ -157,6 +157,39 @@ def _mark_dirty_and_upload():
         # 未設定 S3 或上傳失敗：不擋住抓取結果，只記錄
         print(f"[fetch] 抓取後上傳 S3 略過/失敗：{e}")
 
+def _count_missing_sectors():
+    """計算目前有幾檔股票缺有效族群（沒有或只有『其他』）。"""
+    conn = get_db()
+    try:
+        all_stocks = set(r[0] for r in conn.execute('SELECT code FROM stock_list').fetchall())
+        try:
+            valid = set(r[0] for r in conn.execute(
+                "SELECT DISTINCT stock_id FROM stock_sector WHERE sector_level1 != '' AND sector_level1 IS NOT NULL AND sector_level1 != '其他'"
+            ).fetchall())
+        except Exception:
+            valid = set()
+        return len(all_stocks - valid)
+    finally:
+        conn.close()
+
+@app.route('/api/fetch/sectors', methods=['POST'])
+def fetch_sectors_api():
+    """更新缺族群股票的族群資訊（抓新股後補族群用）。"""
+    try:
+        import fetch_sectors
+        fetch_sectors.init_database()
+        before = _count_missing_sectors()
+        fetch_sectors.update_missing_sectors()
+        after = _count_missing_sectors()
+        updated = max(0, before - after)
+        _mark_dirty_and_upload()
+        msg = (f'族群更新完成：原本 {before} 檔缺族群，已更新 {updated} 檔，'
+               f'仍有 {after} 檔無法歸類（CMoney 查無或歸「其他」）。')
+        return jsonify({'success': True, 'message': msg,
+                        'before': before, 'after': after, 'updated': updated})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/sectors')
 def get_sectors():
     conn = get_db()

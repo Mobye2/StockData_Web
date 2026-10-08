@@ -16,9 +16,6 @@ import sys
 import io
 from db_config import ensure_db, upload_db
 warnings.filterwarnings('ignore')
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
-ensure_db()  # 啟動時從 S3 取得最新 stock.db（本地已有則略過）
 
 def fetch_stock_sector(stock_id):
     """從 CMoney 撈取個股族群資訊"""
@@ -162,6 +159,9 @@ def update_missing_sectors():
     print('\n完成！')
 
 if __name__ == '__main__':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    ensure_db()  # 啟動時從 S3 取得最新 stock.db（本地已有則略過）
+
     print('=== 族群管理程式 ===\n')
     
     # 初始化資料庫結構
