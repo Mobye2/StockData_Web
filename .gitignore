@@ -57,3 +57,6 @@ logs/
 # Temporary files
 *.tmp
 *.temp
+
+# DB sync marker (local state)
+.db_last_sync

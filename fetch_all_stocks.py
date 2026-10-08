@@ -6,8 +6,10 @@ import os
 import sys
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
+from db_config import ensure_db, upload_db
 
 load_dotenv()
+ensure_db()  # 啟動時從 S3 取得最新 stock.db
 api = DataLoader()
 api.login_by_token(api_token=os.getenv('Finmind_token'))
 
@@ -127,6 +129,7 @@ for stock_info in STOCK_LIST:
         print("\n使用者中斷", flush=True)
         conn.commit()
         conn.close()
+        upload_db()  # 中斷前也把已抓到的資料存回 S3
         sys.exit(0)
     except Exception as e:
         print(f"[FAIL] {code} {name}: {e}", flush=True)
@@ -134,4 +137,5 @@ for stock_info in STOCK_LIST:
         continue
 
 conn.close()
+upload_db()  # 全部抓完後存回 S3
 print("\n全部完成！")

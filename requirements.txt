@@ -1,2 +1,7 @@
 flask
 pandas
+boto3
+python-dotenv
+requests
+beautifulsoup4
+FinMind

@@ -1,7 +1,34 @@
 from flask import Flask, render_template, jsonify, request
 import sqlite3
+import os
+from db_config import ensure_db, upload_db, DB_PATH
 
 app = Flask(__name__)
+
+# 用一個標記檔記錄「上次與 S3 同步（上傳或下載）的時間」。
+# 若本地 stock.db 的修改時間比它新，代表本地有變動尚未上傳 => dirty。
+_SYNC_MARK = '.db_last_sync'
+
+def _mark_synced():
+    """記錄本次同步時間（下載或上傳成功後呼叫）。"""
+    try:
+        with open(_SYNC_MARK, 'w') as f:
+            f.write(str(os.path.getmtime(DB_PATH) if os.path.exists(DB_PATH) else 0))
+    except Exception:
+        pass
+
+def _is_dirty():
+    """本地 db 修改時間是否比上次同步新（代表有未上傳變動）。"""
+    if not os.path.exists(DB_PATH):
+        return False
+    if not os.path.exists(_SYNC_MARK):
+        return True  # 從沒同步過，視為有變動
+    try:
+        with open(_SYNC_MARK) as f:
+            last = float(f.read().strip() or 0)
+        return os.path.getmtime(DB_PATH) > last + 0.5  # 容忍 0.5 秒誤差
+    except Exception:
+        return True
 
 def get_db():
     conn = sqlite3.connect('stock.db')
@@ -19,6 +46,149 @@ def backtest_page():
 @app.route('/multi-backtest')
 def multi_backtest_page():
     return render_template('multi_backtest.html', active_page='multi_backtest')
+
+@app.route('/data-manager')
+def data_manager_page():
+    return render_template('data_manager.html', active_page='data_manager')
+
+# ---- 資料庫 S3 同步 API ----
+
+@app.route('/api/db/status')
+def db_status():
+    """回傳本地 stock.db 的狀態，供前端顯示與關頁面提醒使用。"""
+    exists = os.path.exists(DB_PATH)
+    size = os.path.getsize(DB_PATH) if exists else 0
+    mtime = os.path.getmtime(DB_PATH) if exists else None
+    return jsonify({
+        'exists': exists,
+        'size': size,
+        'size_mb': round(size / 1024 / 1024, 2) if exists else 0,
+        'mtime': mtime,
+        'dirty': _is_dirty(),  # True 表示本地有變動尚未上傳
+    })
+
+@app.route('/api/db/download', methods=['POST'])
+def db_download():
+    """從 S3 下載最新的 stock.db 覆蓋本地（手動按鈕觸發）。"""
+    try:
+        ensure_db(force=True)
+        _mark_synced()  # 下載完＝本地已是雲端最新版，視為乾淨
+        return jsonify({'success': True, 'message': '已從雲端下載最新資料庫'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/db/upload', methods=['POST'])
+def db_upload():
+    """把本地 stock.db 上傳回 S3（手動按鈕觸發）。"""
+    try:
+        upload_db()
+        _mark_synced()  # 已上傳，清除未上傳標記
+        return jsonify({'success': True, 'message': '已上傳本地資料庫到雲端'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ---- 指定股票抓取（FinMind）----
+
+MAX_FETCH_STOCKS = 20  # 單次最多抓取檔數（同步版，避免請求逾時）
+
+def _parse_codes(raw):
+    """把使用者輸入（逗號/換行/空白分隔）清洗成不重複的代號清單。"""
+    import re
+    if not raw:
+        return []
+    parts = re.split(r'[\s,，、]+', str(raw))
+    seen = []
+    for p in parts:
+        p = p.strip()
+        if p and p not in seen:
+            seen.append(p)
+    return seen
+
+@app.route('/api/fetch/stocks', methods=['POST'])
+def fetch_stocks_api():
+    """
+    用 FinMind 抓取「指定股票代號」的歷史資料並寫入 stock.db。
+    輸入 JSON：
+      - codes        : 代號陣列，或 raw_codes 字串（逗號/換行分隔）
+      - start_date   : 起始日期（預設 2021-01-01）
+      - fetch_kline  : 是否抓 K 線（預設 true）
+      - fetch_chip   : 是否抓籌碼（預設 false）
+    """
+    data = request.json or {}
+    codes = data.get('codes')
+    if not codes:
+        codes = _parse_codes(data.get('raw_codes', ''))
+    else:
+        # 已是陣列也做一次清洗去重
+        codes = _parse_codes(','.join(str(c) for c in codes))
+
+    start_date = data.get('start_date') or '2021-01-01'
+    fetch_kline = data.get('fetch_kline', True)
+    fetch_chip = data.get('fetch_chip', False)
+
+    if not codes:
+        return jsonify({'success': False, 'error': '請輸入至少一個股票代號'}), 400
+    if not fetch_kline and not fetch_chip:
+        return jsonify({'success': False, 'error': '請至少選擇抓取 K 線或籌碼其中一項'}), 400
+    if len(codes) > MAX_FETCH_STOCKS:
+        return jsonify({'success': False,
+                        'error': f'單次最多抓取 {MAX_FETCH_STOCKS} 檔，你輸入了 {len(codes)} 檔'}), 400
+
+    try:
+        from fetch_core import fetch_stocks
+        results = fetch_stocks(
+            codes,
+            start_date=start_date,
+            fetch_kline=fetch_kline,
+            fetch_chip=fetch_chip,
+        )
+        # 抓完存回 S3；標記本地有新變動
+        _mark_dirty_and_upload()
+        return jsonify({'success': True, 'results': results})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+def _mark_dirty_and_upload():
+    """抓資料後：嘗試上傳 S3；若未設定 S3 則略過（本地仍更新成功）。"""
+    try:
+        upload_db()
+        _mark_synced()
+    except Exception as e:
+        # 未設定 S3 或上傳失敗：不擋住抓取結果，只記錄
+        print(f"[fetch] 抓取後上傳 S3 略過/失敗：{e}")
+
+def _count_missing_sectors():
+    """計算目前有幾檔股票缺有效族群（沒有或只有『其他』）。"""
+    conn = get_db()
+    try:
+        all_stocks = set(r[0] for r in conn.execute('SELECT code FROM stock_list').fetchall())
+        try:
+            valid = set(r[0] for r in conn.execute(
+                "SELECT DISTINCT stock_id FROM stock_sector WHERE sector_level1 != '' AND sector_level1 IS NOT NULL AND sector_level1 != '其他'"
+            ).fetchall())
+        except Exception:
+            valid = set()
+        return len(all_stocks - valid)
+    finally:
+        conn.close()
+
+@app.route('/api/fetch/sectors', methods=['POST'])
+def fetch_sectors_api():
+    """更新缺族群股票的族群資訊（抓新股後補族群用）。"""
+    try:
+        import fetch_sectors
+        fetch_sectors.init_database()
+        before = _count_missing_sectors()
+        fetch_sectors.update_missing_sectors()
+        after = _count_missing_sectors()
+        updated = max(0, before - after)
+        _mark_dirty_and_upload()
+        msg = (f'族群更新完成：原本 {before} 檔缺族群，已更新 {updated} 檔，'
+               f'仍有 {after} 檔無法歸類（CMoney 查無或歸「其他」）。')
+        return jsonify({'success': True, 'message': msg,
+                        'before': before, 'after': after, 'updated': updated})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/sectors')
 def get_sectors():
